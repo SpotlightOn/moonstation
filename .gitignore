@@ -1,0 +1,11 @@
+config.h
+slides/
+.pio/
+*.bin
+.vscode/
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+sdkconfig.*

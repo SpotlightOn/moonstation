@@ -1,0 +1,17 @@
+// Copy this file to config.h in the project root and adjust.
+// config.h is git-ignored and must never be committed.
+
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// Slideshow
+#define SLIDE_INTERVAL_MS 5000
+#define SLIDE_DIR "/slides"
+
+// Display
+#define LCD_SPI_HZ 40000000
+
+// Audio
+#define AUDIO_VOLUME 60
+
+#endif // CONFIG_H

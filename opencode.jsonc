@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Local credentials (WiFi, API keys) belong in a git-ignored config.h in the
+  // project root and must stay private: only a tracked template
+  // (config.h.example) may be read or edited by an agent.
+  // Rules are matched in order, the last match wins.
+  "permissions": [
+    { "action": "read", "resource": "config.h", "effect": "deny" },
+    { "action": "edit", "resource": "config.h", "effect": "deny" },
+
+    // Shell commands are raw text, so block every command that mentions the
+    // file. This also stops `cat`, `grep`, `cp` and `git add` from touching it.
+    { "action": "shell", "resource": "*config.h*", "effect": "deny" },
+  ],
+}
