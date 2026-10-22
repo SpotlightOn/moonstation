@@ -21,6 +21,11 @@
 static const char *TAG = "audio";
 static esp_codec_dev_handle_t codec_dev = NULL;
 static i2s_chan_handle_t tx_handle = NULL;
+static esp_codec_dev_sample_info_t fs = {
+    .sample_rate = 24000,
+    .channel = 2,
+    .bits_per_sample = 16,
+};
 
 static i2c_master_bus_handle_t init_i2c(void)
 {
@@ -127,19 +132,7 @@ esp_err_t audio_init(void)
         return ESP_FAIL;
     }
 
-    esp_codec_dev_sample_info_t fs = {
-        .sample_rate = 24000,
-        .channel = 2,
-        .bits_per_sample = 16,
-    };
-    ret = esp_codec_dev_open(codec_dev, &fs);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "codec open failed: %d", ret);
-        return ESP_FAIL;
-    }
-    esp_codec_dev_set_out_vol(codec_dev, AUDIO_VOLUME);
-
-    // Test tone.
+    // Test tone (opens, plays and closes the codec, keeping PA off afterwards).
     audio_play_tone(440, 200);
     ESP_LOGI(TAG, "audio ready");
     return ESP_OK;
@@ -148,9 +141,18 @@ esp_err_t audio_init(void)
 void audio_play_tone(int freq_hz, int duration_ms)
 {
     if (!codec_dev) return;
+    if (esp_codec_dev_open(codec_dev, &fs) != 0) {
+        ESP_LOGW(TAG, "codec open failed");
+        return;
+    }
+    esp_codec_dev_set_out_vol(codec_dev, AUDIO_VOLUME);
+
     int samples = 24000 * duration_ms / 1000;
     int16_t *buf = malloc(samples * 2 * sizeof(int16_t));
-    if (!buf) return;
+    if (!buf) {
+        esp_codec_dev_close(codec_dev);
+        return;
+    }
     for (int i = 0; i < samples; i++) {
         float t = (float)i / 24000.0f;
         int16_t v = (int16_t)(sinf(2.0f * 3.14159265f * freq_hz * t) * 16000.0f);
@@ -159,4 +161,7 @@ void audio_play_tone(int freq_hz, int duration_ms)
     }
     esp_codec_dev_write(codec_dev, buf, samples * 2 * sizeof(int16_t));
     free(buf);
+
+    // Close to disable PA and keep the speaker silent when idle.
+    esp_codec_dev_close(codec_dev);
 }
