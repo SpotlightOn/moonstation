@@ -3,6 +3,8 @@
 #include "sdcard.h"
 #include "touch.h"
 #include "audio.h"
+#include "clock.h"
+#include "esp_timer.h"
 #include "pins.h"
 #include "esp_log.h"
 #include "jpeg_decoder.h"
@@ -19,7 +21,7 @@
 #endif
 
 #ifndef SLIDE_INTERVAL_MS
-#define SLIDE_INTERVAL_MS 5000
+#define SLIDE_INTERVAL_MS 10000
 #endif
 #ifndef SLIDE_DIR
 #define SLIDE_DIR "/slides"
@@ -27,17 +29,47 @@
 
 #define MAX_SLIDE_BYTES (512 * 1024)
 #define MAX_SLIDES 256
+#define DIM_AFTER_SEC 15
+#define DIM_BRIGHTNESS 20
 
 static const char *TAG = "slideshow";
 static uint16_t slide_fb[240 * 240];
 static volatile bool advance_req = false;
+static volatile int ui_mode = 0; // 0 slideshow, 1 clock
+static int64_t last_interaction = 0;
 
 static char *slide_paths[MAX_SLIDES];
 static size_t slide_count = 0;
 
+static void update_backlight(void)
+{
+    int64_t now = esp_timer_get_time() / 1000000LL;
+    if (last_interaction == 0) last_interaction = now;
+    int64_t idle = now - last_interaction;
+    if (idle > 60) {
+        display_backlight_set_brightness(5);
+    } else if (idle > DIM_AFTER_SEC) {
+        display_backlight_set_brightness(20);
+    } else {
+        display_backlight_set_brightness(100);
+    }
+}
+
 static void on_touch_tap(void)
 {
-    advance_req = true;
+    last_interaction = esp_timer_get_time() / 1000000LL;
+    display_backlight_set_brightness(100);
+    if (ui_mode == 0) {
+        advance_req = true;
+    }
+}
+
+static void on_long_press(void)
+{
+    last_interaction = esp_timer_get_time() / 1000000LL;
+    display_backlight_set_brightness(100);
+    ui_mode = ui_mode ? 0 : 1;
+    audio_play_tone(ui_mode ? 880 : 440, 80);
 }
 
 static int cmp_str(const void *a, const void *b)
@@ -132,9 +164,26 @@ static esp_err_t show_slide(const char *path)
 
 void slideshow_run(void)
 {
+    clock_init();
+    last_interaction = esp_timer_get_time() / 1000000LL;
     touch_init(on_touch_tap);
+    touch_set_long_press_cb(on_long_press);
 
     while (1) {
+        if (ui_mode == 1) {
+            // Clock mode
+            while (ui_mode == 1) {
+                update_backlight();
+                clock_render();
+                for (int i = 0; i < 10 && ui_mode == 1; i++) {
+                    vTaskDelay(pdMS_TO_TICKS(100));
+                }
+            }
+            fill_color(0x0000);
+            continue;
+        }
+
+        // Slideshow mode
         if (!sdcard_is_mounted()) {
             if (sdcard_init() != ESP_OK) {
                 ESP_LOGW(TAG, "no SD card");
@@ -153,7 +202,8 @@ void slideshow_run(void)
         }
 
         size_t idx = 0;
-        while (sdcard_is_mounted()) {
+        while (sdcard_is_mounted() && ui_mode == 0) {
+            update_backlight();
             advance_req = false;
             esp_err_t r = show_slide(slide_paths[idx]);
             if (r != ESP_OK) {
@@ -162,14 +212,15 @@ void slideshow_run(void)
             }
 
             int waited = 0;
-            while (waited < SLIDE_INTERVAL_MS && !advance_req && sdcard_is_mounted()) {
+            while (waited < SLIDE_INTERVAL_MS && !advance_req && sdcard_is_mounted() && ui_mode == 0) {
+                update_backlight();
                 vTaskDelay(pdMS_TO_TICKS(50));
                 waited += 50;
             }
-            if (advance_req) {
+            if (advance_req && ui_mode == 0) {
                 audio_play_tone(660, 60);
             }
-            if (!sdcard_is_mounted()) break;
+            if (!sdcard_is_mounted() || ui_mode != 0) break;
             idx = (idx + 1) % slide_count;
         }
         free_slides();

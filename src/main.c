@@ -15,7 +15,7 @@
 #endif
 
 #ifndef SLIDE_INTERVAL_MS
-#define SLIDE_INTERVAL_MS 5000
+#define SLIDE_INTERVAL_MS 10000
 #endif
 
 static const char *TAG = "moonstation";
