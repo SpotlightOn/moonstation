@@ -17,6 +17,11 @@
 #define LCD_SPI_HZ 40000000
 #endif
 
+// Boot brightness; keep in sync with the auto-dimming full level.
+#ifndef BACKLIGHT_FULL_PCT
+#define BACKLIGHT_FULL_PCT 100
+#endif
+
 static const char *TAG = "display";
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static esp_lcd_panel_handle_t panel_handle = NULL;
@@ -100,7 +105,7 @@ void display_backlight_on(void)
         .hpoint = 0,
     };
     ledc_channel_config(&ccfg);
-    display_backlight_set_brightness(100);
+    display_backlight_set_brightness(BACKLIGHT_FULL_PCT);
 }
 
 void display_backlight_off(void)

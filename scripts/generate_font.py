@@ -5,7 +5,7 @@ import sys
 from PIL import Image, ImageDraw, ImageFont
 
 FONT_PATH = "./DejaVuSans-Bold.ttf"
-OUT = os.path.join(os.path.dirname(__file__), "..", "src", "font.h")
+OUT = os.path.join(os.path.dirname(__file__), "..", "src", "clock", "font.h")
 
 def make_font(size, chars, cell_w=None, cell_h=None):
     font = ImageFont.truetype(FONT_PATH, size)

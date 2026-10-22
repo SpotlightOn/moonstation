@@ -19,6 +19,13 @@
 #include "esp_netif.h"
 #include "esp_sntp.h"
 #include "freertos/event_groups.h"
+
+// Listen interval for max modem sleep, in beacon intervals (about 100 ms
+// each). Needed so WIFI_PS_MAX_MODEM actually sleeps longer than the AP DTIM
+// period; falls back to the beacon interval when left at 0.
+#ifndef WIFI_LISTEN_INTERVAL
+#define WIFI_LISTEN_INTERVAL 10
+#endif
 #endif
 
 static const char *TAG = "clock";
@@ -59,7 +66,9 @@ static void wifi_connect(void)
     strncpy((char *)wcfg.sta.password, WIFI_PASSWORD, sizeof(wcfg.sta.password));
 #endif
     wcfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    wcfg.sta.listen_interval = WIFI_LISTEN_INTERVAL;
     esp_wifi_set_mode(WIFI_MODE_STA);
+    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
     esp_wifi_set_config(WIFI_IF_STA, &wcfg);
     esp_wifi_start();
     esp_wifi_connect();
@@ -102,7 +111,8 @@ esp_err_t clock_init(void)
     wifi_connect();
     sntp_sync();
     esp_wifi_stop();
-    ESP_LOGI(TAG, "WiFi stopped for power saving");
+    esp_wifi_deinit();
+    ESP_LOGI(TAG, "WiFi stopped and deinitialized for power saving");
 #endif
     ESP_LOGI(TAG, "clock ready");
     return ESP_OK;
@@ -131,10 +141,14 @@ static void draw_time_text(const char *s, int x, int y, uint16_t color, uint16_t
     }
 }
 
-void clock_render(void)
+void clock_render(const uint16_t *background)
 {
     static uint16_t fb[240 * 240];
-    for (size_t i = 0; i < 240 * 240; i++) fb[i] = 0x0000;
+    if (background) {
+        for (size_t i = 0; i < 240 * 240; i++) fb[i] = background[i];
+    } else {
+        for (size_t i = 0; i < 240 * 240; i++) fb[i] = 0x0000;
+    }
 
     time_t now;
     time(&now);
