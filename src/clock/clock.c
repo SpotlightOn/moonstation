@@ -119,9 +119,9 @@ static void wifi_connect(void)
 
 static void sntp_sync(void)
 {
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, "pool.ntp.org");
-    sntp_init();
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
     for (int i = 0; i < 50; i++) {
         vTaskDelay(pdMS_TO_TICKS(200));
         time_t now = 0;

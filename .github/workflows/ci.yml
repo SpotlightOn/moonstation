@@ -59,7 +59,7 @@ jobs:
             ~/.platformio/.cache
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'src/idf_component.yml') }}
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'dependencies.lock', 'src/idf_component.yml') }}
           restore-keys: |
             ${{ runner.os }}-pio-
 
