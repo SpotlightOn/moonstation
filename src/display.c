@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/ledc.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
@@ -66,17 +67,43 @@ esp_lcd_panel_handle_t display_get_panel(void)
     return panel_handle;
 }
 
+#define LEDC_TIMER LEDC_TIMER_0
+#define LEDC_MODE LEDC_LOW_SPEED_MODE
+#define LEDC_CHANNEL LEDC_CHANNEL_0
+
+void display_backlight_set_brightness(int percent)
+{
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    // Active low: 100% brightness -> 0% duty, 0% brightness -> 100% duty.
+    int duty = (100 - percent) * ((1 << 13) - 1) / 100;
+    ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, duty);
+    ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
+}
+
 void display_backlight_on(void)
 {
-    gpio_config_t io = {
-        .pin_bit_mask = 1ULL << PIN_LCD_BL,
-        .mode = GPIO_MODE_OUTPUT,
+    ledc_timer_config_t tcfg = {
+        .speed_mode = LEDC_MODE,
+        .duty_resolution = LEDC_TIMER_13_BIT,
+        .timer_num = LEDC_TIMER,
+        .freq_hz = 5000,
+        .clk_cfg = LEDC_AUTO_CLK,
     };
-    gpio_config(&io);
-    gpio_set_level(PIN_LCD_BL, 0); // active low
+    ledc_timer_config(&tcfg);
+    ledc_channel_config_t ccfg = {
+        .gpio_num = PIN_LCD_BL,
+        .speed_mode = LEDC_MODE,
+        .channel = LEDC_CHANNEL,
+        .timer_sel = LEDC_TIMER,
+        .duty = (1 << 13) - 1,
+        .hpoint = 0,
+    };
+    ledc_channel_config(&ccfg);
+    display_backlight_set_brightness(100);
 }
 
 void display_backlight_off(void)
 {
-    gpio_set_level(PIN_LCD_BL, 1);
+    display_backlight_set_brightness(0);
 }

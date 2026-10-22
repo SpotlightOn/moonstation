@@ -8,5 +8,6 @@ esp_err_t display_init(void);
 esp_lcd_panel_handle_t display_get_panel(void);
 void display_backlight_on(void);
 void display_backlight_off(void);
+void display_backlight_set_brightness(int percent);
 
 #endif // DISPLAY_H
