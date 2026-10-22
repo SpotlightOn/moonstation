@@ -156,7 +156,9 @@ picked up by the manager automatically.
 
 The clock shows HH:MM and the date, with a small per-minute jitter to reduce
 burn-in. Time comes from the compile time by default; WiFi/NTP can be enabled
-in `config.h`.
+in `config.h`. The WiFi and SNTP stack is always linked (`wifi_connect()` and
+`sntp_sync()` in `clock.c`), so firmware built without credentials keeps the
+compile time and never touches the radio.
 
 Below the weekday sits the battery row: a small battery icon filled to the
 charge level, the percentage next to it, and an upward arrow while charging.

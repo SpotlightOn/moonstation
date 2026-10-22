@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Always link the WiFi and NTP stack; without `WIFI_SSID` the clock keeps the
+  compile time and the radio stays off.
+
 ## 0.2.0 - 2026-10-22
 
 - Add battery indicator.

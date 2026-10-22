@@ -4,6 +4,7 @@
 #include "font.h"
 #include "esp_log.h"
 #include "esp_err.h"
+#include "stdbool.h"
 #include "sys/time.h"
 #include "time.h"
 #include "string.h"
@@ -14,19 +15,40 @@
 #include "config.h"
 #endif
 
-#if defined(WIFI_SSID)
+// The WiFi, netif and SNTP code is always compiled and linked so every
+// firmware image ships with the full stack; without credentials below the
+// clock simply keeps the compile time and never touches the radio.
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_sntp.h"
 #include "freertos/event_groups.h"
 
+// WiFi credentials come from config.h; empty means "not configured".
+#ifndef WIFI_SSID
+#define WIFI_SSID ""
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD ""
+#endif
+
+static const char wifi_ssid[] = WIFI_SSID;
+static const char wifi_password[] = WIFI_PASSWORD;
+
+// True when config.h supplied WiFi credentials. The check runs at runtime on
+// purpose: it keeps wifi_connect() and sntp_sync() referenced, so the linker
+// always keeps the WiFi and SNTP stack - also in firmware built without a
+// config.h.
+static bool wifi_configured(void)
+{
+    return wifi_ssid[0] != '\0';
+}
+
 // Listen interval for max modem sleep, in beacon intervals (about 100 ms
 // each). Needed so WIFI_PS_MAX_MODEM actually sleeps longer than the AP DTIM
 // period; falls back to the beacon interval when left at 0.
 #ifndef WIFI_LISTEN_INTERVAL
 #define WIFI_LISTEN_INTERVAL 10
-#endif
 #endif
 
 // Battery indicator below the weekday (0 = off).
@@ -83,7 +105,6 @@ static void set_compile_time(void)
     settimeofday(&tv, NULL);
 }
 
-#if defined(WIFI_SSID)
 static void wifi_connect(void)
 {
     esp_netif_init();
@@ -92,10 +113,8 @@ static void wifi_connect(void)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
     wifi_config_t wcfg = {0};
-    strncpy((char *)wcfg.sta.ssid, WIFI_SSID, sizeof(wcfg.sta.ssid));
-#ifdef WIFI_PASSWORD
-    strncpy((char *)wcfg.sta.password, WIFI_PASSWORD, sizeof(wcfg.sta.password));
-#endif
+    strncpy((char *)wcfg.sta.ssid, wifi_ssid, sizeof(wcfg.sta.ssid));
+    strncpy((char *)wcfg.sta.password, wifi_password, sizeof(wcfg.sta.password));
     wcfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     wcfg.sta.listen_interval = WIFI_LISTEN_INTERVAL;
     esp_wifi_set_mode(WIFI_MODE_STA);
@@ -133,7 +152,6 @@ static void sntp_sync(void)
     }
     ESP_LOGW(TAG, "NTP sync timeout");
 }
-#endif
 
 esp_err_t clock_init(void)
 {
@@ -143,13 +161,15 @@ esp_err_t clock_init(void)
         ESP_LOGW(TAG, "battery indicator unavailable");
     }
 #endif
-#if defined(WIFI_SSID)
-    wifi_connect();
-    sntp_sync();
-    esp_wifi_stop();
-    esp_wifi_deinit();
-    ESP_LOGI(TAG, "WiFi stopped and deinitialized for power saving");
-#endif
+    if (wifi_configured()) {
+        wifi_connect();
+        sntp_sync();
+        esp_wifi_stop();
+        esp_wifi_deinit();
+        ESP_LOGI(TAG, "WiFi stopped and deinitialized for power saving");
+    } else {
+        ESP_LOGI(TAG, "no WiFi configured, clock keeps compile time");
+    }
     ESP_LOGI(TAG, "clock ready");
     return ESP_OK;
 }
