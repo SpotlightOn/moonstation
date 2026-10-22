@@ -52,7 +52,10 @@
 #endif
 
 static const char *TAG = "slideshow";
-static uint16_t slide_fb[240 * 240];
+// Shared RGB565 frame buffer, assigned in slideshow_run(). Both the slides
+// and the clock overlay are drawn into it, which is what makes one buffer
+// enough for the whole firmware.
+static uint16_t *slide_fb = NULL;
 static volatile bool advance_req = false;
 static int64_t last_interaction = 0;
 static esp_pm_lock_handle_t cpu_max_lock = NULL;
@@ -179,9 +182,13 @@ static void scan_slides(void)
     ESP_LOGI(TAG, "found %u slides", (unsigned)slide_count);
 }
 
+// Fills the shared buffer with a plain RGB565 color and pushes it to the
+// panel; the byte swap for the panel happens here, once, so callers pass
+// natural color values.
 static void fill_color(uint16_t color)
 {
-    for (size_t i = 0; i < 240 * 240; i++) slide_fb[i] = color;
+    uint16_t px = RGB565_SWAP(color);
+    for (size_t i = 0; i < 240 * 240; i++) slide_fb[i] = px;
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
@@ -403,6 +410,9 @@ static void slideshow_enter(void)
 {
     apply_power_for_mode(false);
     advance_req = false;
+    // Redraw unconditionally: the clock mode may have blanked the shared
+    // frame buffer, so the buffered slide cannot be trusted anymore.
+    slide_active = false;
     slideshow_step(); // draws the current (or next due) slide right away
 }
 
@@ -434,6 +444,7 @@ static void combined_enter(void)
 {
     apply_power_for_mode(false);
     advance_req = false;
+    slide_active = false; // same reason as in slideshow_enter
     slideshow_step();
     // slide_fb holds the latest slide (or the error fill); draw over it.
     last_clock_min = -1;
@@ -451,6 +462,12 @@ static void combined_on_wake(void)
     time_t now = time(NULL);
     localtime_r(&now, &tm);
     if (redrawn || tm.tm_min != last_clock_min) {
+        // The overlay writes into the shared buffer, so the slide pixels
+        // under the clock are gone. Without a fresh slide, decode it again
+        // first to avoid compositing the clock over its own leftovers.
+        if (!redrawn && slide_count > 0) {
+            show_slide(slide_paths[slide_idx]);
+        }
         clock_render(slide_fb);
         last_clock_min = tm.tm_min;
     }
@@ -511,6 +528,7 @@ static const ui_mode_t combined_mode = {
 
 void slideshow_run(void)
 {
+    slide_fb = display_get_framebuffer();
     clock_init();
     last_interaction = esp_timer_get_time() / 1000000LL;
 
