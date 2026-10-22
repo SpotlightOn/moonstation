@@ -47,6 +47,17 @@
 
 // ---------------- Display ----------------
 #define LCD_SPI_HZ 40000000
+// Battery indicator below the weekday in the clock (1 = on, 0 = off)
+// #define CLOCK_SHOW_BATTERY 1
+// Charge level (percent) at or below which the indicator turns red and the
+// device beeps quietly on every refresh (0 = no warning)
+// #define BATTERY_WARN_PCT 10
+// Volume of that warning beep in percent (0-100)
+// #define BATTERY_BEEP_VOLUME 30
+// Seconds between battery samples (the ADC is not read more often than this)
+// #define BATTERY_REFRESH_SEC 300
+// Polarity of the charging input: 1 = the pin reads high while charging
+// #define BATTERY_CHARGING_ACTIVE_HIGH 1
 // Backlight auto-dimming (levels in percent, delays in seconds)
 // #define BACKLIGHT_FULL_PCT 100
 // #define BACKLIGHT_DIM_PCT 20

@@ -72,6 +72,13 @@ esp_lcd_panel_handle_t display_get_panel(void)
     return panel_handle;
 }
 
+static uint16_t frame_buffer[240 * 240];
+
+uint16_t *display_get_framebuffer(void)
+{
+    return frame_buffer;
+}
+
 #define LEDC_TIMER LEDC_TIMER_0
 #define LEDC_MODE LEDC_LOW_SPEED_MODE
 #define LEDC_CHANNEL LEDC_CHANNEL_0

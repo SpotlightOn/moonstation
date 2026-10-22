@@ -16,6 +16,8 @@ supported, and the backlight dims automatically when idle.
   clock+slideshow modes (boots into clock mode)
 - Clock mode shows the time and date, with a small jitter for burn-in
   prevention
+- Battery indicator below the weekday: icon with the charge level, the
+  percentage and an arrow while charging
 - Automatic backlight dimming after 15 s and deep dim after 60 s
 - Audio feedback on touch and mode changes
 - Graceful handling of a missing SD card or empty image directory
@@ -64,6 +66,11 @@ is git-ignored and must never be committed. Available macros:
 | `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
 | `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
+| `CLOCK_SHOW_BATTERY` | `1` | battery indicator below the weekday (`0` hides it) |
+| `BATTERY_WARN_PCT` | `10` | charge level that turns the indicator red and beeps (`0` off) |
+| `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
+| `BATTERY_REFRESH_SEC` | `300` | seconds between battery samples |
+| `BATTERY_CHARGING_ACTIVE_HIGH` | `1` | charging input reads high while charging |
 
 Optional WiFi settings enable NTP time sync for the clock mode:
 
@@ -102,6 +109,7 @@ Then copy the output to the SD card.
 - SD card: SDMMC 1-bit
 - Touch: CST816D on I2C (SDA 11, SCL 7)
 - Audio: ES8311 on I2C (SDA 15, SCL 14), I2S, PA on GPIO 46
+- Battery: voltage divider on GPIO 1 (ADC1), charging status on GPIO 41
 
 ## Runtime behavior
 
@@ -113,6 +121,8 @@ Then copy the output to the SD card.
   redraws immediately
 - Clock mode shows HH:MM with the date below, redrawing only once per minute
   (timer driven, no polling)
+- Battery readings are sampled by a timer every 5 minutes and shown from that
+  cache; when a refresh reports 10 % or less the device beeps quietly
 
 ## Development
 

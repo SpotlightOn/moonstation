@@ -140,12 +140,19 @@ esp_err_t audio_init(void)
 
 void audio_play_tone(int freq_hz, int duration_ms)
 {
+    audio_play_tone_at(freq_hz, duration_ms, AUDIO_VOLUME);
+}
+
+void audio_play_tone_at(int freq_hz, int duration_ms, int volume_pct)
+{
     if (!codec_dev) return;
     if (esp_codec_dev_open(codec_dev, &fs) != 0) {
         ESP_LOGW(TAG, "codec open failed");
         return;
     }
-    esp_codec_dev_set_out_vol(codec_dev, AUDIO_VOLUME);
+    if (volume_pct < 0) volume_pct = 0;
+    if (volume_pct > 100) volume_pct = 100;
+    esp_codec_dev_set_out_vol(codec_dev, volume_pct);
 
     int samples = 24000 * duration_ms / 1000;
     int16_t *buf = malloc(samples * 2 * sizeof(int16_t));

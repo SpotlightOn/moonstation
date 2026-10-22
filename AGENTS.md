@@ -32,7 +32,7 @@ Touch and the built-in speaker must be functional.
 | `CMakeLists.txt` | Top-level ESP-IDF project |
 | `src/CMakeLists.txt` | Main component registration |
 | `src/main.c` | Entry point (`app_main`) |
-| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `pins.h` |
+| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `pins.h` |
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`, generated `font.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
 | `scripts/generate_font.py` | Regenerates `src/clock/font.h` from the TTF |

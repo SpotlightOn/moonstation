@@ -20,6 +20,7 @@ moonstation/
 │   │   ├── sdcard.c/.h
 │   │   ├── touch.c/.h
 │   │   ├── audio.c/.h
+│   │   ├── battery.c/.h
 │   │   └── pins.h
 │   ├── clock/
 │   │   ├── clock.c/.h
@@ -71,6 +72,11 @@ code. Available macros:
 | `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
 | `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
+| `CLOCK_SHOW_BATTERY` | `1` | battery indicator below the weekday (`0` hides it) |
+| `BATTERY_WARN_PCT` | `10` | charge level that turns the indicator red and beeps (`0` off) |
+| `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
+| `BATTERY_REFRESH_SEC` | `300` | seconds between battery samples |
+| `BATTERY_CHARGING_ACTIVE_HIGH` | `1` | charging input reads high while charging |
 
 Optional WiFi settings enable NTP time sync for the clock mode.
 
@@ -79,6 +85,17 @@ Optional WiFi settings enable NTP time sync for the clock mode.
 The panel is a GC9A01 driven over SPI. The backlight on GPIO 42 is active low
 and PWM controlled (`display_backlight_set_brightness`). `display_backlight_on`
 configures the LEDC timer/channel; off sets 0%.
+
+Colors in the code are plain RGB565; the byte swap for the panel happens
+exactly once per write path with `RGB565_SWAP()` from `display.h`: in
+`fill_rect()`, `draw_text()` and `draw_time_text()` (clock.c), in `fill_color()`
+(slideshow.c) and in the JPEG decoder (`swap_color_bytes = 1`). The swap is
+needed because the panel expects the most significant byte first, esp_lcd
+reverses only command and parameter bytes (not color data), and the CPU stores
+a `uint16_t` least significant byte first. White and black are palindromic and
+therefore unaffected, which is why a missing swap only shows up as blue instead
+of red and dark red instead of green. Never put pixels into a frame buffer
+without going through one of those paths.
 
 ## SD card and images
 
@@ -101,6 +118,21 @@ lifted. Touch is optional: missing hardware is logged and ignored.
 ES8311 on I2C port 0 plus I2S. The codec is opened per tone and closed
 afterwards so the PA stays off when idle. `audio_play_tone(freq, ms)` generates
 a sine wave.
+
+## Battery
+
+`core/battery.c` reads the charge level from the voltage divider on GPIO 1
+(ADC1 channel 0, 12 dB attenuation, 12-bit) and the charging input on GPIO 41
+(internal pull-up, high while charging). The raw readings are averaged over
+three samples and mapped to 0-100 % with a per-board lookup table taken from
+the vendor firmware, so no ADC calibration config is needed.
+
+A repeating `esp_timer` samples the battery every `BATTERY_REFRESH_SEC`
+seconds and writes one log line per refresh containing the raw ADC value, so
+a wrong percentage can be traced back to the sensor. The display only reads
+that cache; it never starts a conversion itself. When a refresh reports
+`BATTERY_WARN_PCT` or less, a short quiet beep sounds (`BATTERY_BEEP_VOLUME`).
+The monitor is initialized from `clock_init()`.
 
 ## UI modes
 
@@ -125,6 +157,12 @@ picked up by the manager automatically.
 The clock shows HH:MM and the date, with a small per-minute jitter to reduce
 burn-in. Time comes from the compile time by default; WiFi/NTP can be enabled
 in `config.h`.
+
+Below the weekday sits the battery row: a small battery icon filled to the
+charge level, the percentage next to it, and an upward arrow while charging.
+It is white normally, green while charging and red at or below
+`BATTERY_WARN_PCT`, and it moves with the same jitter as the date. Set
+`CLOCK_SHOW_BATTERY` to `0` to hide it.
 
 The clock is timer driven: the screen is redrawn only when the displayed minute
 changes, aligned to the minute boundary. A one-shot `esp_timer` (`ui_wake`)
