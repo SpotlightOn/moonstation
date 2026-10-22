@@ -83,6 +83,9 @@ Optional WiFi settings enable NTP time sync for the clock mode:
 `WIFI_LISTEN_INTERVAL` is the modem-sleep listen interval in beacon intervals
 (default 10, about 1 s); it makes maximum modem power saving effective.
 
+The WiFi and NTP stack is always compiled into the firmware; without
+`WIFI_SSID` the clock simply keeps the compile time and the radio stays off.
+
 ## SD card
 
 Format the card as FAT32 and place 240x240 baseline JPEGs in the configured
@@ -126,5 +129,7 @@ Then copy the output to the SD card.
 
 ## Development
 
+CI runs cppcheck and a full firmware build on every push to `main` and on pull
+requests; pushing a `v*` tag publishes a GitHub Release with the binaries.
 See [docs/development.md](docs/development.md) for build details, hardware notes,
 configuration, and regeneration of the clock font.

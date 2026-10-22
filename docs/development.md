@@ -156,7 +156,9 @@ picked up by the manager automatically.
 
 The clock shows HH:MM and the date, with a small per-minute jitter to reduce
 burn-in. Time comes from the compile time by default; WiFi/NTP can be enabled
-in `config.h`.
+in `config.h`. The WiFi and SNTP stack is always linked (`wifi_connect()` and
+`sntp_sync()` in `clock.c`), so firmware built without credentials keeps the
+compile time and never touches the radio.
 
 Below the weekday sits the battery row: a small battery icon filled to the
 charge level, the percentage next to it, and an upward arrow while charging.
@@ -180,6 +182,26 @@ python3 scripts/generate_font.py
 ```
 
 Commit the resulting `src/clock/font.h` when the font changes.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes to `main` and on pull requests:
+
+- **Static analysis**: cppcheck over `src` (warnings, performance and
+  portability checks, any finding fails the run).
+- **Build firmware**: `pio run` on a clean runner with `config.h` created from
+  `config.h.example`, the PlatformIO toolchain cached. `firmware.bin`,
+  `bootloader.bin` and `partition-table.bin` are uploaded as a workflow
+  artifact.
+
+`.github/workflows/release.yml` runs on version tags (`v*`), builds the same
+way, merges the images into a single flashable binary and publishes a GitHub
+Release with all binaries attached:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 ## Debugging
 
