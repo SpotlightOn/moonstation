@@ -4,18 +4,65 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Slideshow
+// ---------------- Slideshow ----------------
 #define SLIDE_INTERVAL_MS 10000
 #define SLIDE_DIR "/slides"
 
-// Display
-#define LCD_SPI_HZ 40000000
+// ---------------- Weather ----------------
+// OpenWeatherMap API key, free of charge at https://openweathermap.org/api
+// The key below is the public one shipped with the vendor firmware. It is
+// shared by every buyer of this board and often rate limited, replace it.
+#define WEATHER_API_KEY ""
 
+// 1 = detect the city from the public IP address (ip-api.com)
+// 0 = use CITY_CODE below
+#define CITY_AUTO_DETECT 1
+
+// City name for OpenWeatherMap when CITY_AUTO_DETECT is 0, for example
+// "Berlin,de" or "Shanghai,cn". The numeric ids in CityCode/citycode.json
+// belong to a Chinese weather service and do not work with the q= query this
+// sketch sends.
+#define CITY_CODE "101020100"
+
+// ---------------- Time ----------------
+// NTP server the clock syncs against
+#define NTP_SERVER "time.nist.gov"
+// Resync interval in minutes
+#define NTP_SYNC_MINUTES 20
+
+// ---------------- Time zone ----------------
+// 0 = use the UTC offset that OpenWeatherMap reports for the detected city.
+//     Correct while the weather request succeeds, but the clock falls back to
+//     UTC as soon as that request fails (expired or rate limited API key).
+// 1 = use the fixed standard offset below plus the European summer time rule.
+#define TIMEZONE_SOURCE 1
+
+// Standard (winter) UTC offset in hours, decimals allowed.
+// Germany = 1 (CET). Summer time adds one hour on top.
+#define TIMEZONE_STD_OFFSET_HOURS 1
+
+// 1 = observe European summer time (last Sunday in March to the last Sunday in
+//     October), 0 = keep the standard offset all year
+#define TIMEZONE_EU_DST 1
+
+// ---------------- Display ----------------
+#define LCD_SPI_HZ 40000000
+// Backlight auto-dimming (levels in percent, delays in seconds)
+// #define BACKLIGHT_FULL_PCT 100
+// #define BACKLIGHT_DIM_PCT 20
+// #define BACKLIGHT_DEEP_PCT 5
+// #define BACKLIGHT_DIM_AFTER_SEC 15
+// #define BACKLIGHT_DEEP_AFTER_SEC 60
+
+// ---------------- Audio ----------------
 // Audio
 #define AUDIO_VOLUME 60
 
+// ---------------- WiFi ----------------
 // Optional WiFi for clock time sync (uncomment and fill)
 // #define WIFI_SSID "your-ssid"
 // #define WIFI_PASSWORD "your-password"
+// Modem-sleep listen interval in beacon intervals; default 10 (about 1 s).
+// #define WIFI_LISTEN_INTERVAL 10
 
 #endif // CONFIG_H
