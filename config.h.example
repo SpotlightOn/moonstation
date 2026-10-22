@@ -5,7 +5,7 @@
 #define CONFIG_H
 
 // Slideshow
-#define SLIDE_INTERVAL_MS 5000
+#define SLIDE_INTERVAL_MS 10000
 #define SLIDE_DIR "/slides"
 
 // Display
@@ -13,5 +13,9 @@
 
 // Audio
 #define AUDIO_VOLUME 60
+
+// Optional WiFi for clock time sync (uncomment and fill)
+// #define WIFI_SSID "your-ssid"
+// #define WIFI_PASSWORD "your-password"
 
 #endif // CONFIG_H
