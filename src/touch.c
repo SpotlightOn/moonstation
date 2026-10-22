@@ -12,6 +12,7 @@ static i2c_master_bus_handle_t bus = NULL;
 static i2c_master_dev_handle_t dev = NULL;
 static bool available = false;
 static touch_tap_cb_t tap_cb = NULL;
+static touch_long_cb_t long_cb = NULL;
 static esp_timer_handle_t timer = NULL;
 
 static bool was_touched = false;
@@ -43,6 +44,8 @@ static void poll(void *arg)
         int64_t dur = now - touch_start_ms;
         if (dur < 500 && tap_cb) {
             tap_cb();
+        } else if (dur >= 500 && long_cb) {
+            long_cb();
         }
     }
 }
@@ -118,6 +121,11 @@ esp_err_t touch_init(touch_tap_cb_t cb)
     ESP_ERROR_CHECK(esp_timer_create(&args, &timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(timer, 10 * 1000));
     return ESP_OK;
+}
+
+void touch_set_long_press_cb(touch_long_cb_t cb)
+{
+    long_cb = cb;
 }
 
 bool touch_is_available(void)
