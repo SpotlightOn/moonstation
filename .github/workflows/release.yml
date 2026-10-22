@@ -43,25 +43,18 @@ jobs:
         run: |
           pip install "esptool<5"
           build=.pio/build/spotpear_esp32s3
-          args=(
-            --flash_mode keep
-            --flash_freq keep
-            --flash_size 16MB
-            0x0 "$build/bootloader.bin"
-            0x8000 "$build/partition-table.bin"
-          )
-          if [ -f "$build/phy_init_data.bin" ]; then
-            args+=(0xe000 "$build/phy_init_data.bin")
-          fi
-          args+=(0x10000 "$build/firmware.bin")
           python -m esptool --chip esp32s3 merge_bin \
-            -o "moonstation-${GITHUB_REF_NAME}-flash.bin" "${args[@]}"
+            -o "moonstation-${GITHUB_REF_NAME}-flash.bin" \
+            --flash_mode dio --flash_freq 80m --flash_size 16MB \
+            0x0 "$build/bootloader.bin" \
+            0x8000 "$build/partitions.bin" \
+            0x10000 "$build/firmware.bin"
 
       - name: Collect artifacts
         run: |
           build=.pio/build/spotpear_esp32s3
           mkdir -p out
-          cp "$build/firmware.bin" "$build/bootloader.bin" "$build/partition-table.bin" \
+          cp "$build/firmware.bin" "$build/bootloader.bin" "$build/partitions.bin" \
             "moonstation-${GITHUB_REF_NAME}-flash.bin" out/
 
       - name: Create GitHub release
@@ -78,4 +71,4 @@ jobs:
             ```
 
             Or flash the individual files: `bootloader.bin` at `0x0`,
-            `partition-table.bin` at `0x8000`, `firmware.bin` at `0x10000`.
+            `partitions.bin` at `0x8000`, `firmware.bin` at `0x10000`.

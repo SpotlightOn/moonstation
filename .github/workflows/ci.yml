@@ -76,7 +76,7 @@ jobs:
         run: |
           build=.pio/build/spotpear_esp32s3
           mkdir -p out
-          cp "$build/firmware.bin" "$build/bootloader.bin" "$build/partition-table.bin" out/
+          cp "$build/firmware.bin" "$build/bootloader.bin" "$build/partitions.bin" out/
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
