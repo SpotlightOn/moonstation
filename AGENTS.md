@@ -5,9 +5,10 @@ Briefing for coding agents working in this repository.
 ## What this project is
 
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240 round
-display), built with PlatformIO. Initial feature: an endless slideshow of 240x240
-JPEG images stored in `/slides` on the SD card. Touch and the built-in speaker
-must be functional.
+display), built with PlatformIO. Features: an endless slideshow of 240x240 JPEG
+images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
+by a long press on the touch screen, PWM backlight dimming, and audio feedback.
+Touch and the built-in speaker must be functional.
 
 ## Hard rules
 
@@ -30,7 +31,11 @@ must be functional.
 | `partitions_16mb.csv` | 16 MB flash, 4 MB factory app |
 | `CMakeLists.txt` | Top-level ESP-IDF project |
 | `src/CMakeLists.txt` | Main component registration |
-| `src/*.c` | Firmware sources |
+| `src/main.c` | Entry point (`app_main`) |
+| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `pins.h` |
+| `src/clock/` | Clock mode and time sync (`clock.c/.h`, generated `font.h`) |
+| `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
+| `scripts/generate_font.py` | Regenerates `src/clock/font.h` from the TTF |
 | `src/idf_component.yml` | Managed ESP-IDF dependencies |
 | `config.h.example` | Tracked config template |
 | `config.h` | Local settings, git-ignored, off limits |
@@ -52,9 +57,9 @@ stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 
 ## Hardware facts
 
-- ESP32-S3, 16 MB flash, no PSRAM, native USB on GPIO19/20.
+- ESP32-S3, 16 MB flash, no PSRAM, native USB on GPIO19/20, CPU at 80 MHz.
 - Panel: GC9A01, 240x240, inversion on, pins MOSI 2, SCLK 4, CS 5, DC 47,
-  RST 38, backlight 42 (active low). SPI at 40 MHz.
+  RST 38, backlight 42 (active low, PWM). SPI at 40 MHz.
 - SD card: SDMMC 1-bit, CLK 17, CMD 18, D0 21, D3 13.
 - Touch: CST816D on I2C port 1, SDA 11, SCL 7, RST 6, INT 12, addr 0x15.
 - Audio: ES8311 on I2C port 0 (SDA 15, SCL 14), I2S MCLK 16, BCLK 9,

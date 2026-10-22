@@ -1,20 +1,36 @@
-# moonstation
+# Moonstation
 
-ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240 round
-display), built with PlatformIO. The initial feature is an endless slideshow of
-240x240 JPEG images stored in `/slides` on the SD card. Touch and the built-in
-speaker are functional.
+ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
+round display), built with PlatformIO. It runs an endless slideshow of 240x240
+JPEG images from an SD card and offers a clock mode (HH:MM with date) toggled
+by a long press on the touch screen. Touch input and the built-in speaker are
+supported, and the backlight dims automatically when idle.
 
-## Layout
+![Spotpear Box 1.28](docs/spotpear-box.avif)
 
-```
-platformio.ini            build configuration
-partitions_16mb.csv       16 MB flash layout, 4 MB application slot
-src/                      firmware sources
-scripts/build_slides.sh   convert a folder of images to 240x240 slides
-config.h.example          tracked config template
-config.h                  local settings, git-ignored
-```
+## Features
+
+- Endless slideshow of 240x240 baseline JPEGs, sorted by file name
+- Touch tap advances to the next slide immediately
+- Long press (about 0.5 s) cycles through clock, slideshow and combined
+  clock+slideshow modes (boots into clock mode)
+- Clock mode shows the time and date, with a small jitter for burn-in
+  prevention
+- Automatic backlight dimming after 15 s and deep dim after 60 s
+- Audio feedback on touch and mode changes
+- Graceful handling of a missing SD card or empty image directory
+
+## Planned
+
+- Web UI for configuration.
+- A third mode, slideshow + clock commbined
+- alarm clock (requires web ui)
+
+## Prerequisites
+
+- PlatformIO (use the bundled venv binary shown below)
+- Python 3 with Pillow (for regenerating the clock font)
+- ImageMagick 7 (`magick`) for preparing slide images
 
 ## Build, flash, monitor
 
@@ -39,35 +55,66 @@ is git-ignored and must never be committed. Available macros:
 
 | Macro | Default | Meaning |
 | --- | --- | --- |
-| `SLIDE_INTERVAL_MS` | `5000` | time per slide in milliseconds |
+| `SLIDE_INTERVAL_MS` | `10000` | time per slide in milliseconds |
 | `SLIDE_DIR` | `/slides` | directory on the SD card |
 | `LCD_SPI_HZ` | `40000000` | panel SPI clock |
 | `AUDIO_VOLUME` | `60` | speaker volume (0-100) |
+| `BACKLIGHT_FULL_PCT` | `100` | brightness while active (percent) |
+| `BACKLIGHT_DIM_PCT` | `20` | brightness after `BACKLIGHT_DIM_AFTER_SEC` |
+| `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
+| `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
+| `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
+
+Optional WiFi settings enable NTP time sync for the clock mode:
+
+```c
+// #define WIFI_SSID "your-ssid"
+// #define WIFI_PASSWORD "your-password"
+// #define WIFI_LISTEN_INTERVAL 10
+```
+
+`WIFI_LISTEN_INTERVAL` is the modem-sleep listen interval in beacon intervals
+(default 10, about 1 s); it makes maximum modem power saving effective.
 
 ## SD card
 
-Format the card as FAT32. Create a `/slides` directory and copy 240x240 baseline
-JPEG files into it. The firmware scans `/slides` on boot and loops through the
-files in name order. Touching the screen advances to the next slide.
+Format the card as FAT32 and place 240x240 baseline JPEGs in the configured
+directory. The firmware scans it on boot and loops through the files in name
+order.
 
-Use the helper script to prepare images:
+### Preparing images
+
+A helper script converts arbitrary JPEGs/PNGs to the required format using
+ImageMagick 7:
 
 ```bash
 ./scripts/build_slides.sh /path/to/images
+./scripts/build_slides.sh /path/to/images /path/to/output
 ```
 
-This writes 240x240 sRGB baseline JPEGs into `./slides`.
+Then copy the output to the SD card.
 
 ## Hardware
 
-- ESP32-S3, 16 MB flash, no PSRAM, native USB on GPIO19/20.
-- Panel: GC9A01, 240x240, inversion on, SPI 40 MHz.
-- SD card: SDMMC 1-bit, CLK 17, CMD 18, D0 21, D3 13.
-- Touch: CST816D on I2C (SDA 11, SCL 7).
-- Audio: ES8311 on I2C (SDA 15, SCL 14), I2S MCLK 16, BCLK 9, WS 45,
-  DIN 10, DOUT 8, PA enable 46.
+- ESP32-S3, 16 MB flash, no PSRAM, native USB on GPIO19/20, CPU at 80 MHz
+- Panel: GC9A01, 240x240, inversion on, SPI at 40 MHz
+- Backlight: GPIO 42, active low, PWM controlled
+- SD card: SDMMC 1-bit
+- Touch: CST816D on I2C (SDA 11, SCL 7)
+- Audio: ES8311 on I2C (SDA 15, SCL 14), I2S, PA on GPIO 46
 
-## Notes
+## Runtime behavior
 
-- Keep all identifiers, comments, serial output and UI strings in English.
-- Never commit `config.h` or `.pio/`.
+- No SD card: red screen, retry every 2 seconds
+- Empty or missing image directory: yellow screen, rescan every 2 seconds
+- Unreadable or corrupt JPEG: skipped, next image shown
+- Touch advances to the next slide immediately
+- Long press cycles clock -> slideshow -> clock+slideshow -> clock; the switch
+  redraws immediately
+- Clock mode shows HH:MM with the date below, redrawing only once per minute
+  (timer driven, no polling)
+
+## Development
+
+See [docs/development.md](docs/development.md) for build details, hardware notes,
+configuration, and regeneration of the clock font.

@@ -3,8 +3,9 @@
 Goal: Build an ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board,
 initially set up as a PlatformIO project. It must support the same hardware as
 the vendor Arduino projects (display, SD card, touch, built-in speaker) and show
-an endless slideshow of 240x240 JPEG images from `/slides` on the SD card. The
-slide interval is configurable in `config.h` and defaults to 5 seconds.
+an endless slideshow of 240x240 JPEG images from `/slides` on the SD card, with a
+clock mode toggled by a long press. The slide interval is configurable in
+`config.h` and defaults to 10 seconds.
 
 ## 1. Hardware target (from the reference projects)
 
@@ -28,7 +29,7 @@ in the xiaozhi-esp32 reference and `src/main.cpp` in ESP32S3-SDcard-Video.
 
 - `platformio.ini` with `framework = espidf`, `board = esp32-s3-devkitc-1`.
 - Flash: 16 MB, `board_build.partitions = partitions_16mb.csv`, 4 MB app slot.
-- CPU 240 MHz, USB CDC on boot (`-DARDUINO_USB_CDC_ON_BOOT` is Arduino-only;
+- CPU 80 MHz, USB CDC on boot (`-DARDUINO_USB_CDC_ON_BOOT` is Arduino-only;
   for ESP-IDF use the USB serial JTAG / CDC console as configured by the framework).
 - `board_build.flash_mode = qio`, `board_build.flash_size = 16MB`.
 - Include path `-I.` so `#include "config.h"` resolves from the sketch/app dir.
