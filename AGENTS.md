@@ -55,6 +55,11 @@ Serial capture without the monitor:
 stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ```
 
+CI (`.github/workflows/`): `ci.yml` runs cppcheck and `pio run` on pushes to
+`main` and on pull requests, building from `config.h.example`, so every new
+setting needs an `#ifndef` fallback or CI breaks. `release.yml` publishes a
+GitHub Release with the firmware binaries when a `v*` tag is pushed.
+
 ## Hardware facts
 
 - ESP32-S3, 16 MB flash, no PSRAM, native USB on GPIO19/20, CPU at 80 MHz.

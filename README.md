@@ -126,5 +126,7 @@ Then copy the output to the SD card.
 
 ## Development
 
+CI runs cppcheck and a full firmware build on every push to `main` and on pull
+requests; pushing a `v*` tag publishes a GitHub Release with the binaries.
 See [docs/development.md](docs/development.md) for build details, hardware notes,
 configuration, and regeneration of the clock font.

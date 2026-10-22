@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'src/idf_component.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
+
+      - name: Prepare config.h
+        run: cp config.h.example config.h
+
+      - name: Build
+        run: pio run
+
+      - name: Merge flash image
+        run: |
+          pip install "esptool<5"
+          build=.pio/build/spotpear_esp32s3
+          args=(
+            --flash_mode keep
+            --flash_freq keep
+            --flash_size 16MB
+            0x0 "$build/bootloader.bin"
+            0x8000 "$build/partition-table.bin"
+          )
+          if [ -f "$build/phy_init_data.bin" ]; then
+            args+=(0xe000 "$build/phy_init_data.bin")
+          fi
+          args+=(0x10000 "$build/firmware.bin")
+          python -m esptool --chip esp32s3 merge_bin \
+            -o "moonstation-${GITHUB_REF_NAME}-flash.bin" "${args[@]}"
+
+      - name: Collect artifacts
+        run: |
+          build=.pio/build/spotpear_esp32s3
+          mkdir -p out
+          cp "$build/firmware.bin" "$build/bootloader.bin" "$build/partition-table.bin" \
+            "moonstation-${GITHUB_REF_NAME}-flash.bin" out/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            Flash the merged image in one go:
+
+            ```
+            esptool.py --chip esp32s3 write_flash 0x0 moonstation-${GITHUB_REF_NAME}-flash.bin
+            ```
+
+            Or flash the individual files: `bootloader.bin` at `0x0`,
+            `partition-table.bin` at `0x8000`, `firmware.bin` at `0x10000`.
