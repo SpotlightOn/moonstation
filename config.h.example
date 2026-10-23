@@ -36,7 +36,8 @@
 // window ends; a touch lights it up for the normal dimming period. The RTC
 // keeps the time while sleeping (drifts by seconds per day without a
 // 32.768 kHz crystal); with WiFi configured the wake at the end of the
-// window resyncs via NTP.
+// window resyncs via NTP. Building it in also seeds the runtime setting of
+// the same name, which the setup page flips at any time.
 #define CLOCK_DEEP_SLEEP 0
 
 // Sleep window in local hours [FROM, TO). A window that ends before it

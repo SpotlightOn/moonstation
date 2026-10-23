@@ -597,7 +597,8 @@ void slideshow_run(void)
         // stays completely dark - no redraw, no backlight. The touch line must
         // be idle-high, otherwise the ext0 wake would fire right away and
         // loop the boot.
-        if (active_mode == &clock_mode && clock_deep_sleep_window_active() &&
+        if (settings.clock_deep_sleep_enable && active_mode == &clock_mode &&
+            clock_deep_sleep_window_active() &&
             esp_timer_get_time() / 1000000LL - last_interaction >
                 settings.backlight_deep_after_sec &&
             gpio_get_level((gpio_num_t)PIN_TP_INT) != 0) {

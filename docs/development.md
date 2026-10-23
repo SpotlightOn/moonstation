@@ -106,7 +106,7 @@ the subset of values that makes sense at runtime.
 | `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
 | `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
-| `CLOCK_DEEP_SLEEP` | `0` | deep sleep for the clock mode inside the night window |
+| `CLOCK_DEEP_SLEEP` | `0` | builds the night deep sleep in and enables it by default |
 | `CLOCK_DEEP_SLEEP_FROM` | `23` | first local hour of the deep sleep window |
 | `CLOCK_DEEP_SLEEP_TO` | `7` | first local hour after the deep sleep window |
 | `TIMEZONE_STD_OFFSET_HOURS` | `1` | standard (winter) UTC offset for the clock |
@@ -123,7 +123,9 @@ Optional WiFi settings enable NTP time sync for the clock mode.
 
 `CLOCK_DEEP_SLEEP` makes the clock mode deep sleep inside the local hours of
 `CLOCK_DEEP_SLEEP_FROM`/`CLOCK_DEEP_SLEEP_TO` (default 23:00 to 07:00). The
-display stays dark for the whole window: the board sleeps until the end of
+compile switch builds the feature in and seeds the runtime setting of the same
+name, which the setup page flips; the window hours are runtime settings too.
+The display stays dark for the whole window: the board sleeps until the end of
 the window, and a touch lights the clock up for the normal dimming period.
 Deep sleep reboots the chip on every wake-up, so the pieces fit together
 like this:
@@ -256,9 +258,12 @@ shows. Nothing else in the firmware knows it exists.
 - **API**: `GET /api/config` returns the editable subset as form encoded
   `key=value` pairs, `POST /api/config` applies and stores it,
   `POST /api/reset` stores the build time defaults again while keeping the WiFi
-  credentials, and `POST /api/shutdown` closes the page. `URLSearchParams` on
-  the client side reads and writes that format, so quotes, spaces and umlauts
-  in passwords survive without an escaping bug on either side.
+  credentials, and `POST /api/shutdown` closes the page. Every field also
+  carries its build time default as `key.def`, which the page shows next to
+  the label; the `min`/`max` limits sit in the markup and mirror the clamp
+  ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client side
+  reads and writes that format, so quotes, spaces and umlauts in passwords
+  survive without an escaping bug on either side.
 - **Radio**: the server holds the link with `net_wifi_hold()` for as long as
   it listens, so the daily NTP sync cannot take the page down.
 - **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so

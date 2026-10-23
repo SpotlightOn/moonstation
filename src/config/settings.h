@@ -11,13 +11,13 @@
 // NVS overrides them at boot and settings_save() writes them back. Modules
 // read this struct instead of macros, so a value can change at runtime.
 //
-// Scope of the web UI: it may write the WiFi credentials, slide interval,
-// backlight, clock (deep sleep window, NTP), timezone, audio/battery levels
-// and its own login - everything an owner tunes at home. lcd_spi_hz,
-// slide_dir, battery_sample_count, battery_refresh_sec and
+// Scope of the web UI: it may write the WiFi credentials, slide directory and
+// interval, backlight, clock (deep sleep window and switch, NTP), timezone,
+// audio/battery levels and its own login - everything an owner tunes at home.
+// lcd_spi_hz, battery_sample_count, battery_refresh_sec and
 // wifi_listen_interval stay config.h only: board level, and a wrong value
-// there is not worth a form. Which features are
-// built in stays a compile time decision, see features.h.
+// there is not worth a form. Which features are built in stays a compile time
+// decision, see features.h.
 typedef struct {
     // Slideshow
     uint32_t slide_interval_ms;
@@ -60,6 +60,12 @@ typedef struct {
     char web_user[33];
     char web_password[65];
     uint8_t web_idle_timeout_min;   // silence after which it shuts itself down
+
+    // Night deep sleep of the clock mode: the runtime twin of the
+    // CLOCK_DEEP_SLEEP compile switch, so the window can be switched off
+    // without a rebuild. Appended last, so a version 2 blob still lines up
+    // field by field and can be migrated.
+    uint8_t clock_deep_sleep_enable;
 } settings_t;
 
 extern settings_t settings;
@@ -71,7 +77,11 @@ esp_err_t settings_init(void);
 // Writes the current values to NVS. Call after a change, so a reboot keeps it.
 esp_err_t settings_save(void);
 
-// Reloads the build-time defaults into the struct without touching NVS.
+// Writes the build-time defaults into *out, without touching NVS or the live
+// settings; the setup page shows them as hints next to the labels.
+void settings_defaults_into(settings_t *out);
+
+// Reloads the build-time defaults into the live struct without touching NVS.
 void settings_defaults(void);
 
 // Stores the build-time defaults again, keeping the WiFi credentials of this

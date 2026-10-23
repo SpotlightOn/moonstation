@@ -41,6 +41,11 @@
 #ifndef CLOCK_DEEP_SLEEP_TO
 #define CLOCK_DEEP_SLEEP_TO 7
 #endif
+// The compile switch decides whether the deep sleep code is built in and
+// doubles as the default of the runtime setting of the same name.
+#ifndef CLOCK_DEEP_SLEEP
+#define CLOCK_DEEP_SLEEP 0
+#endif
 
 #ifndef NTP_SERVER
 #define NTP_SERVER "pool.ntp.org"
@@ -111,8 +116,10 @@ static const char *NVS_NAMESPACE = "settings";
 static const char *NVS_KEY = "config";
 
 // Stored as one versioned blob: bump it whenever the struct layout changes,
-// so an old blob falls back to the defaults instead of reading garbage.
-#define SETTINGS_VERSION 2
+// so an old blob falls back to the defaults instead of reading garbage. The
+// loader still takes the version before that, as long as nothing but appended
+// fields changed - see settings_init().
+#define SETTINGS_VERSION 3
 
 typedef struct {
     uint32_t version;
@@ -121,9 +128,9 @@ typedef struct {
 
 settings_t settings;
 
-void settings_defaults(void)
+void settings_defaults_into(settings_t *out)
 {
-    settings_t d = {
+    const settings_t d = {
         .slide_interval_ms = SLIDE_INTERVAL_MS,
         .slide_dir = SLIDE_DIR,
         .backlight_full_pct = BACKLIGHT_FULL_PCT,
@@ -133,6 +140,7 @@ void settings_defaults(void)
         .backlight_deep_after_sec = BACKLIGHT_DEEP_AFTER_SEC,
         .clock_deep_sleep_from = CLOCK_DEEP_SLEEP_FROM,
         .clock_deep_sleep_to = CLOCK_DEEP_SLEEP_TO,
+        .clock_deep_sleep_enable = CLOCK_DEEP_SLEEP,
         .ntp_daily_sync_hour = NTP_DAILY_SYNC_HOUR,
         .ntp_server = NTP_SERVER,
         .wifi_ssid = WIFI_SSID,
@@ -151,7 +159,12 @@ void settings_defaults(void)
         .web_password = WEB_PASSWORD,
         .web_idle_timeout_min = WEB_IDLE_TIMEOUT_MIN,
     };
-    settings = d;
+    *out = d;
+}
+
+void settings_defaults(void)
+{
+    settings_defaults_into(&settings);
 }
 
 // Keeps a broken or hand edited store from taking the firmware down: values
@@ -193,6 +206,7 @@ static void sanitize(void)
     }
     // Below one minute the server would shut down while the page is open.
     if (settings.web_idle_timeout_min < 1) settings.web_idle_timeout_min = 1;
+    if (settings.clock_deep_sleep_enable > 1) settings.clock_deep_sleep_enable = 1;
 }
 
 esp_err_t settings_init(void)
@@ -206,8 +220,14 @@ esp_err_t settings_init(void)
         size_t len = sizeof(blob);
         esp_err_t err = nvs_get_blob(handle, NVS_KEY, &blob, &len);
         nvs_close(handle);
-        if (err == ESP_OK && len == sizeof(blob) && blob.version == SETTINGS_VERSION) {
+        if (err == ESP_OK && len == sizeof(blob) &&
+            (blob.version == SETTINGS_VERSION || blob.version == SETTINGS_VERSION - 1)) {
             settings = blob.values;
+            if (blob.version == SETTINGS_VERSION - 1) {
+                // Version 2 ended before the deep sleep switch, so that member
+                // holds padding bytes of the old blob; it takes the default.
+                settings.clock_deep_sleep_enable = CLOCK_DEEP_SLEEP;
+            }
             loaded = true;
         }
     }

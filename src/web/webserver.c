@@ -55,8 +55,10 @@ static const char index_html[] =
     "#f{display:grid;gap:.2em 1.2em;margin-bottom:1.8em;"
     "grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))}"
     "label{display:block;margin:.65em 0 .15em;color:#8ad}"
+    "small{color:#666}"
     "input{width:100%;padding:.45em;border-radius:.3em;border:1px solid #333;"
     "background:#1b1b1b;color:#eee;box-sizing:border-box}"
+    "input[type=checkbox]{width:auto}"
     "#controls{display:flex;flex-wrap:wrap;gap:.5em}"
     "button{padding:.5em .9em;border:0;border-radius:.3em;"
     "background:#2b6cb0;color:#fff;font-size:1em}"
@@ -66,49 +68,104 @@ static const char index_html[] =
     "<h1>Moonstation</h1>"
     "<p class='h'>Settings of the box. Save writes them to flash; WiFi and the"
     " setup login apply at the next server start.</p>"
-    "<form id='f'></form>"
+    // The min and max attributes mirror the clamp ranges of FIELDS below, and
+    // data-scale bridges the unit of the firmware and the unit of the field.
+    "<form id='f' onsubmit='save();return false'>"
+    "<div><label for='wifi_ssid'>WiFi SSID <small id='wifi_ssid.def'></small></label>"
+    "<input name='wifi_ssid' id='wifi_ssid' type='text'></div>"
+    "<div><label for='wifi_password'>WiFi password</label>"
+    "<input name='wifi_password' id='wifi_password' type='password'></div>"
+    "<div><label for='slide_dir'>Slide directory <small id='slide_dir.def'></small></label>"
+    "<input name='slide_dir' id='slide_dir' type='text'></div>"
+    "<div><label for='slide_interval_ms'>Slide interval (s) "
+    "<small id='slide_interval_ms.def'></small></label>"
+    "<input name='slide_interval_ms' id='slide_interval_ms' type='number' min='1'"
+    " max='3600' data-scale='1000'></div>"
+    "<div><label for='backlight_full_pct'>Backlight full (%) "
+    "<small id='backlight_full_pct.def'></small></label>"
+    "<input name='backlight_full_pct' id='backlight_full_pct' type='number'"
+    " min='10' max='100'></div>"
+    "<div><label for='backlight_dim_pct'>Backlight dim (%) "
+    "<small id='backlight_dim_pct.def'></small></label>"
+    "<input name='backlight_dim_pct' id='backlight_dim_pct' type='number'"
+    " min='0' max='100'></div>"
+    "<div><label for='backlight_deep_pct'>Backlight deep (%) "
+    "<small id='backlight_deep_pct.def'></small></label>"
+    "<input name='backlight_deep_pct' id='backlight_deep_pct' type='number'"
+    " min='0' max='100'></div>"
+    "<div><label for='backlight_dim_after_sec'>Dim after (s) "
+    "<small id='backlight_dim_after_sec.def'></small></label>"
+    "<input name='backlight_dim_after_sec' id='backlight_dim_after_sec'"
+    " type='number' min='1' max='255'></div>"
+    "<div><label for='backlight_deep_after_sec'>Deep dim after (s) "
+    "<small id='backlight_deep_after_sec.def'></small></label>"
+    "<input name='backlight_deep_after_sec' id='backlight_deep_after_sec'"
+    " type='number' min='1' max='255'></div>"
+    "<div><label for='clock_deep_sleep_from'>Sleep window from (h) "
+    "<small id='clock_deep_sleep_from.def'></small></label>"
+    "<input name='clock_deep_sleep_from' id='clock_deep_sleep_from' type='number'"
+    " min='0' max='23'></div>"
+    "<div><label for='clock_deep_sleep_to'>Sleep window to (h) "
+    "<small id='clock_deep_sleep_to.def'></small></label>"
+    "<input name='clock_deep_sleep_to' id='clock_deep_sleep_to' type='number'"
+    " min='0' max='23'></div>"
+    "<div><label for='clock_deep_sleep_enable'>Deep sleep at night "
+    "<small id='clock_deep_sleep_enable.def'></small></label>"
+    "<input name='clock_deep_sleep_enable' id='clock_deep_sleep_enable'"
+    " type='checkbox' value='1'></div>"
+    "<div><label for='ntp_daily_sync_hour'>Daily NTP hour (-1 = off) "
+    "<small id='ntp_daily_sync_hour.def'></small></label>"
+    "<input name='ntp_daily_sync_hour' id='ntp_daily_sync_hour' type='number'"
+    " min='-1' max='23'></div>"
+    "<div><label for='ntp_server'>NTP server <small id='ntp_server.def'></small></label>"
+    "<input name='ntp_server' id='ntp_server' type='text'></div>"
+    "<div><label for='tz_std_offset_min'>UTC offset (minutes) "
+    "<small id='tz_std_offset_min.def'></small></label>"
+    "<input name='tz_std_offset_min' id='tz_std_offset_min' type='number'"
+    " min='-720' max='840'></div>"
+    "<div><label for='tz_eu_dst'>EU summer time "
+    "<small id='tz_eu_dst.def'></small></label>"
+    "<input name='tz_eu_dst' id='tz_eu_dst' type='checkbox' value='1'></div>"
+    "<div><label for='audio_volume'>Volume (%) "
+    "<small id='audio_volume.def'></small></label>"
+    "<input name='audio_volume' id='audio_volume' type='number'"
+    " min='0' max='100'></div>"
+    "<div><label for='battery_warn_pct'>Battery warn (%) "
+    "<small id='battery_warn_pct.def'></small></label>"
+    "<input name='battery_warn_pct' id='battery_warn_pct' type='number'"
+    " min='0' max='100'></div>"
+    "<div><label for='battery_beep_volume'>Battery beep (%) "
+    "<small id='battery_beep_volume.def'></small></label>"
+    "<input name='battery_beep_volume' id='battery_beep_volume' type='number'"
+    " min='0' max='100'></div>"
+    "<div><label for='web_user'>Setup user "
+    "<small id='web_user.def'></small></label>"
+    "<input name='web_user' id='web_user' type='text'></div>"
+    "<div><label for='web_password'>Setup password</label>"
+    "<input name='web_password' id='web_password' type='password'></div>"
+    "</form>"
     "<div id='controls'>"
-    "<button onclick='save()'>Save</button>"
+    "<button form='f' type='submit'>Save</button>"
     "<button class='d' onclick='defaults()'>Reset to default</button>"
     "<button class='d' onclick='stop()'>Stop server</button>"
     "</div>"
     "<p id='m'></p><script>"
-    "var F=[['wifi_ssid','WiFi SSID','text'],"
-    "['wifi_password','WiFi password','password'],"
-    "['slide_dir','Slide directory','text'],"
-    "['slide_interval_ms','Slide interval (s)','number',1000],"
-    "['backlight_full_pct','Backlight full (%)','number'],"
-    "['backlight_dim_pct','Backlight dim (%)','number'],"
-    "['backlight_deep_pct','Backlight deep (%)','number'],"
-    "['backlight_dim_after_sec','Dim after (s)','number'],"
-    "['backlight_deep_after_sec','Deep dim after (s)','number'],"
-    "['clock_deep_sleep_from','Sleep window from (h)','number'],"
-    "['clock_deep_sleep_to','Sleep window to (h)','number'],"
-    "['ntp_daily_sync_hour','Daily NTP hour (-1 = off)','number'],"
-    "['ntp_server','NTP server','text'],"
-    "['tz_std_offset_min','UTC offset (minutes)','number'],"
-    "['tz_eu_dst','EU summer time (1 or 0)','number'],"
-    "['audio_volume','Volume (%)','number'],"
-    "['battery_warn_pct','Battery warn (%)','number'],"
-    "['battery_beep_volume','Battery beep (%)','number'],"
-    "['web_user','Setup user','text'],"
-    "['web_password','Setup password','password']];"
     "var f=document.getElementById('f'),m=document.getElementById('m');"
-    "F.forEach(function(x){var w=document.createElement('div'),"
-    "l=document.createElement('label'),i=document.createElement('input');"
-    "l.textContent=x[1];i.id=x[0];i.type=x[2];"
-    "w.appendChild(l);w.appendChild(i);f.appendChild(w);});"
     "function say(t){m.textContent=t}"
-    // A field may carry a scale: what is stored and posted keeps the firmware
-    // unit, the form shows what a human types.
-    "function val(x,v){document.getElementById(x[0]).value=(x[3]?Math.round(v/x[3]):v)}"
+    "function sc(i){return i.getAttribute('data-scale')||1}"
     "function load(){fetch('/api/config').then(function(r){return r.text()})"
     ".then(function(t){var d=new URLSearchParams(t);"
-    "F.forEach(function(x){val(x,d.get(x[0])||'')});"
+    "Array.prototype.forEach.call(f.elements,function(i){if(!i.id)return;"
+    "var v=d.get(i.id);if(v!==null){"
+    "if(i.type=='checkbox'){i.checked=(v=='1')}"
+    "else{i.value=(sc(i)>1?Math.round(v/sc(i)):v)}}"
+    "var h=document.getElementById(i.id+'.def'),dv=d.get(i.id+'.def');"
+    "if(h&&dv!==null){h.textContent='(default '+(sc(i)>1?Math.round(dv/sc(i)):dv)+')'}});"
     "say('loaded')}).catch(function(){say('could not load')})}"
     "function save(){var d=new URLSearchParams();"
-    "F.forEach(function(x){var v=document.getElementById(x[0]).value;"
-    "d.set(x[0],x[3]?Math.round(v*x[3]):v)});"
+    "Array.prototype.forEach.call(f.elements,function(i){if(!i.id)return;"
+    "if(i.type=='checkbox'){d.set(i.id,i.checked?1:0);return}"
+    "d.set(i.id,sc(i)>1?Math.round(i.value*sc(i)):i.value)});"
     "fetch('/api/config',{method:'POST',body:d.toString()})"
     ".then(function(r){say(r.ok?'saved':'rejected');setTimeout(load,800)})"
     ".catch(function(){say('could not save')})}"
@@ -206,6 +263,7 @@ static const field_t FIELDS[] = {
     FIELD(backlight_deep_after_sec, F_U8, 0, 1, 255),
     FIELD(clock_deep_sleep_from, F_U8, 0, 0, 23),
     FIELD(clock_deep_sleep_to, F_U8, 0, 0, 23),
+    FIELD(clock_deep_sleep_enable, F_U8, 0, 0, 1),
     FIELD(ntp_daily_sync_hour, F_I8, 0, -1, 23),
     FIELD(ntp_server, F_STR, 64, 0, 0),
     FIELD(tz_std_offset_min, F_I16, 0, -720, 840),
@@ -219,37 +277,42 @@ static const field_t FIELDS[] = {
 
 #define FIELD_COUNT (sizeof(FIELDS) / sizeof(FIELDS[0]))
 
-static void *field_ptr(const field_t *f)
+static void *field_ptr_in(const settings_t *s, const field_t *f)
 {
-    return (uint8_t *)&settings + f->offset;
+    return (uint8_t *)s + f->offset;
 }
 
-static int32_t field_read(const field_t *f)
+static void *field_ptr(const field_t *f)
+{
+    return field_ptr_in(&settings, f);
+}
+
+static int32_t field_read_in(const settings_t *s, const field_t *f)
 {
     switch (f->type) {
     case F_U8: {
         uint8_t v;
-        memcpy(&v, field_ptr(f), sizeof(v));
+        memcpy(&v, field_ptr_in(s, f), sizeof(v));
         return v;
     }
     case F_U16: {
         uint16_t v;
-        memcpy(&v, field_ptr(f), sizeof(v));
+        memcpy(&v, field_ptr_in(s, f), sizeof(v));
         return v;
     }
     case F_U32: {
         uint32_t v;
-        memcpy(&v, field_ptr(f), sizeof(v));
+        memcpy(&v, field_ptr_in(s, f), sizeof(v));
         return (int32_t)v;
     }
     case F_I8: {
         int8_t v;
-        memcpy(&v, field_ptr(f), sizeof(v));
+        memcpy(&v, field_ptr_in(s, f), sizeof(v));
         return v;
     }
     case F_I16: {
         int16_t v;
-        memcpy(&v, field_ptr(f), sizeof(v));
+        memcpy(&v, field_ptr_in(s, f), sizeof(v));
         return v;
     }
     default: return 0;
@@ -355,20 +418,37 @@ static esp_err_t config_get(httpd_req_t *req)
     if (!auth_ok(req)) return deny(req);
     touch_activity();
 
+    // The labels show what the firmware was built with: the defaults are
+    // computed into their own struct, so the live settings stay untouched.
+    static settings_t defs;
+    settings_defaults_into(&defs);
+
     size_t pos = 0;
     resp_buf[0] = '\0';
     for (size_t i = 0; i < FIELD_COUNT; i++) {
         const field_t *f = &FIELDS[i];
         char val[192];
+        char def[192] = "";
         if (f->type == F_STR) {
             url_encode((const char *)field_ptr(f), val, sizeof(val));
+            const char *dflt = (const char *)field_ptr_in(&defs, f);
+            if (dflt[0]) url_encode(dflt, def, sizeof(def));
         } else {
-            snprintf(val, sizeof(val), "%ld", (long)field_read(f));
+            snprintf(val, sizeof(val), "%ld", (long)field_read_in(&settings, f));
+            snprintf(def, sizeof(def), "%ld", (long)field_read_in(&defs, f));
         }
+
         int n = snprintf(resp_buf + pos, sizeof(resp_buf) - pos, "%s%s=%s",
                          i ? "&" : "", f->key, val);
         if (n < 0 || (size_t)n >= sizeof(resp_buf) - pos) break;
         pos += (size_t)n;
+
+        if (def[0] != '\0') {
+            n = snprintf(resp_buf + pos, sizeof(resp_buf) - pos, "&%s.def=%s",
+                         f->key, def);
+            if (n < 0 || (size_t)n >= sizeof(resp_buf) - pos) break;
+            pos += (size_t)n;
+        }
     }
 
     httpd_resp_set_type(req, "application/x-www-form-urlencoded");

@@ -142,13 +142,28 @@ Then copy the output to the SD card.
 
 ## Hardware
 
-- ESP32-S3, 16 MB flash, no PSRAM, native USB on GPIO19/20, CPU at 80 MHz
-- Panel: GC9A01, 240x240, inversion on, SPI at 40 MHz
+Board: Spotpear ESP32-S3 1.28" BOX, the N16R8 variant that Spotpear also sells
+as an AI desktop assistant running Xiaozhi.
+
+- SoC: ESP32-S3, dual-core Xtensa LX7 up to 240 MHz; this firmware runs it at
+  80 MHz (boot log: `cpu freq: 80000000 Hz`)
+- Flash: 16 MB (W25Q128JVSIQ per Spotpear, reported as 16 MB by the bootloader)
+- PSRAM: 8 MB octal at 80 MHz (measured with a probe build: 8388608 bytes of
+  `MALLOC_CAP_SPIRAM`). Spotpear's page for the bare board lists an ESP32-S3R2
+  with 2 MB in-package PSRAM - that is the other variant, not this box
+- PSRAM is not enabled in the build yet (`CONFIG_SPIRAM` is off), so the
+  firmware runs on the internal RAM
+- Panel: GC9A01, 1.28", 240x240, 65K colours, inversion on, SPI at 40 MHz
 - Backlight: GPIO 42, active low, PWM controlled
 - SD card: SDMMC 1-bit
-- Touch: CST816D on I2C (SDA 11, SCL 7)
-- Audio: ES8311 on I2C (SDA 15, SCL 14), I2S, PA on GPIO 46
-- Battery: voltage divider on GPIO 1 (ADC1), charging status on GPIO 41
+- Touch: CST816D on I2C (SDA 11, SCL 7, INT 12, RST 6)
+- Audio: ES8311 codec on I2C (SDA 15, SCL 14) with I2S, PA on GPIO 46
+- Battery: 3.7 V lithium connector with ETA6096 charger, voltage divider on
+  GPIO 1 (ADC1), charging status on GPIO 41
+- Motion: QMI8658 six-axis IMU (accelerometer and gyroscope) per Spotpear, not
+  used by this firmware
+- Serial console: UART0 on GPIO 43/44 through the onboard CH343P USB-UART
+  bridge, which is why it appears as `/dev/ttyACM0`
 
 ## Runtime behavior
 
