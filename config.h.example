@@ -1,15 +1,129 @@
-// Copy this file to config.h in the project root and adjust.
-// config.h is git-ignored and must never be committed.
+// Local configuration of this build.
+//
+// Copy this file to config.h in the project root and adjust it. config.h is
+// git-ignored and must never be committed. Every value below is optional:
+// each one has a built-in default (the #ifndef fallbacks in
+// src/config/settings.c), so a build without config.h still works.
+//
+// Where a value lives:
+//   config.h    compile time: which features are built in, board level
+//               wiring, and the defaults for the runtime settings
+//   NVS / web   runtime values the owner tunes at home; they override the
+//               defaults from here, see "Setup web server" below
 
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// ---------------- Slideshow ----------------
+// ============================== Slideshow ==================================
+
+// Time between two slides in milliseconds.
 #define SLIDE_INTERVAL_MS 10000
+
+// Directory on the SD card holding the 240x240 baseline JPEGs.
 #define SLIDE_DIR "/slides"
 
-// ---------------- Weather ----------------
-// OpenWeatherMap API key, free of charge at https://openweathermap.org/api
+// ================================ Display ==================================
+
+// SPI clock of the GC9A01 panel in Hz. Board level, deliberately not part of
+// the web form: a wrong value here blanks the display.
+#define LCD_SPI_HZ 40000000
+
+// Battery indicator below the weekday in the clock (1 = on, 0 = off).
+#define CLOCK_SHOW_BATTERY 1
+
+// Deep sleep for the clock inside a sleep window (1 = on, 0 = off). The
+// display stays dark for the whole window and the board sleeps until the
+// window ends; a touch lights it up for the normal dimming period. The RTC
+// keeps the time while sleeping (drifts by seconds per day without a
+// 32.768 kHz crystal); with WiFi configured the wake at the end of the
+// window resyncs via NTP. Building it in also seeds the runtime setting of
+// the same name, which the setup page flips at any time.
+#define CLOCK_DEEP_SLEEP 0
+
+// Sleep window in local hours [FROM, TO). A window that ends before it
+// starts crosses midnight (23 -> 7); equal hours disable it.
+#define CLOCK_DEEP_SLEEP_FROM 23
+#define CLOCK_DEEP_SLEEP_TO 7
+
+// Backlight auto-dimming: levels in percent, delays in seconds. The dim
+// level is only reached while nothing is touched; the deep level follows.
+#define BACKLIGHT_FULL_PCT 100
+#define BACKLIGHT_DIM_PCT 20
+#define BACKLIGHT_DEEP_PCT 5
+#define BACKLIGHT_DIM_AFTER_SEC 15
+#define BACKLIGHT_DEEP_AFTER_SEC 60
+
+// =============================== Battery ===================================
+
+// Charge level in percent at or below which the indicator turns red and the
+// device beeps quietly on every refresh (0 = no warning).
+#define BATTERY_WARN_PCT 10
+
+// Volume of that warning beep in percent (0-100).
+#define BATTERY_BEEP_VOLUME 30
+
+// Seconds between battery samples; the ADC is never read more often.
+#define BATTERY_REFRESH_SEC 300
+
+// Number of ADC samples averaged per reading.
+#define BATTERY_SAMPLE_COUNT 3
+
+// Polarity of the charging input: 1 = the pin reads high while charging.
+#define BATTERY_CHARGING_ACTIVE_HIGH 1
+
+// ================================ Audio ====================================
+
+// Volume of the touch and mode feedback tones in percent (0-100).
+#define AUDIO_VOLUME 60
+
+// ================================= WiFi ====================================
+
+// Optional WiFi for the clock time sync and for the setup web server
+// (uncomment and fill in). An empty SSID keeps the radio off, and the setup
+// server then refuses to start: it needs an address to be reachable at.
+// #define WIFI_SSID "your-ssid"
+// #define WIFI_PASSWORD "your-password"
+
+// Modem-sleep listen interval in beacon intervals; default 10 (about 1 s).
+// Board level, no web form.
+// #define WIFI_LISTEN_INTERVAL 10
+
+// ================================= Time ====================================
+
+// NTP server the clock syncs against. Queried on every boot, at the first
+// wake-up outside the deep sleep window and at the daily resync below.
+#define NTP_SERVER "time.nist.gov"
+
+// Local hour of the daily resync while the board stays awake (-1 = off).
+#define NTP_DAILY_SYNC_HOUR 4
+
+// Standard (winter) UTC offset in hours, decimals allowed. Germany = 1
+// (CET); summer time adds one hour on top when TIMEZONE_EU_DST is set.
+#define TIMEZONE_STD_OFFSET_HOURS 1
+
+// 1 = observe European summer time (last Sunday in March to the last Sunday
+//     in October), 0 = keep the standard offset all year.
+#define TIMEZONE_EU_DST 1
+
+// ============================ Setup web server =============================
+
+// Login of the configuration page, opened with the 5 s touch gesture. The
+// page runs over HTTPS with a self-signed certificate, so the browser warns
+// on the first visit - that is expected on a device without a domain.
+//
+// The password is empty by default, which switches authentication off and
+// leaves the page open inside the local network. Set one before the box
+// leaves the living room table. Both values can also be changed later from
+// the page itself.
+#define WEB_USER "admin"
+#define WEB_PASSWORD ""
+
+// Minutes without a request before the server shuts itself down again.
+#define WEB_IDLE_TIMEOUT_MIN 15
+
+// ================================ Weather ==================================
+
+// OpenWeatherMap API key, free of charge at https://openweathermap.org/api.
 // The key below is the public one shipped with the vendor firmware. It is
 // shared by every buyer of this board and often rate limited, replace it.
 #define WEATHER_API_KEY ""
@@ -23,64 +137,5 @@
 // belong to a Chinese weather service and do not work with the q= query this
 // sketch sends.
 #define CITY_CODE "101020100"
-
-// ---------------- Time ----------------
-// NTP server the clock syncs against; the clock queries it on every boot and
-// at the first wake-up outside the deep sleep window.
-#define NTP_SERVER "time.nist.gov"
-// Local hour of the daily resync while the board stays awake (-1 = off)
-#define NTP_DAILY_SYNC_HOUR 4
-
-// ---------------- Time zone ----------------
-// Standard (winter) UTC offset in hours, decimals allowed.
-// Germany = 1 (CET). Summer time adds one hour on top. Applies to the
-// displayed time and to the deep sleep window below.
-#define TIMEZONE_STD_OFFSET_HOURS 1
-
-// 1 = observe European summer time (last Sunday in March to the last Sunday in
-//     October), 0 = keep the standard offset all year
-#define TIMEZONE_EU_DST 1
-
-// ---------------- Display ----------------
-#define LCD_SPI_HZ 40000000
-// Battery indicator below the weekday in the clock (1 = on, 0 = off)
-// #define CLOCK_SHOW_BATTERY 1
-// Charge level (percent) at or below which the indicator turns red and the
-// device beeps quietly on every refresh (0 = no warning)
-// #define BATTERY_WARN_PCT 10
-// Volume of that warning beep in percent (0-100)
-// #define BATTERY_BEEP_VOLUME 30
-// Seconds between battery samples (the ADC is not read more often than this)
-// #define BATTERY_REFRESH_SEC 300
-// Polarity of the charging input: 1 = the pin reads high while charging
-// #define BATTERY_CHARGING_ACTIVE_HIGH 1
-// Backlight auto-dimming (levels in percent, delays in seconds)
-// #define BACKLIGHT_FULL_PCT 100
-// #define BACKLIGHT_DIM_PCT 20
-// #define BACKLIGHT_DEEP_PCT 5
-// #define BACKLIGHT_DIM_AFTER_SEC 15
-// #define BACKLIGHT_DEEP_AFTER_SEC 60
-// Deep sleep for the clock mode inside a sleep window (1 = on, 0 = off): the
-// display stays dark for the whole window and the board sleeps until the
-// window ends; a touch lights it up for the normal dimming period. The RTC
-// keeps the time while sleeping (drifts by seconds per day without a
-// 32.768 kHz crystal); with WiFi configured the wake at the end of the window
-// resyncs via NTP, without WiFi the RTC drifts until power-on.
-// #define CLOCK_DEEP_SLEEP 0
-// Sleep window, local hours [FROM, TO). A window that ends before it starts
-// crosses midnight (23 -> 7); equal hours disable it.
-// #define CLOCK_DEEP_SLEEP_FROM 23
-// #define CLOCK_DEEP_SLEEP_TO 7
-
-// ---------------- Audio ----------------
-// Audio
-#define AUDIO_VOLUME 60
-
-// ---------------- WiFi ----------------
-// Optional WiFi for clock time sync (uncomment and fill)
-// #define WIFI_SSID "your-ssid"
-// #define WIFI_PASSWORD "your-password"
-// Modem-sleep listen interval in beacon intervals; default 10 (about 1 s).
-// #define WIFI_LISTEN_INTERVAL 10
 
 #endif // CONFIG_H

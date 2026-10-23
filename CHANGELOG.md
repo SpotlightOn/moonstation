@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-10-23
 
-- Deep sleep for the clock mode inside a configurable night window.
-- Local time instead of UTC for the clock and the sleep window.
-- Fix clock time: summer time in the compile time, wait for the real NTP answer.
-- Daily NTP resync at `NTP_DAILY_SYNC_HOUR`, `NTP_SERVER` honoured.
+- Setup web UI over HTTPS on a 5 s hold, with login and reset to default.
+- Settings page on static HTML: native validation, checkboxes, default hints.
+- Slide directory and interval (seconds) editable at runtime.
+- Night deep sleep switchable at runtime.
+- Runtime settings in NVS, `config.h` only seeds the defaults.
+- Compile-time feature switches in `src/config/features.h`.
+- Local time instead of UTC.
+- Fix clock time: summer time, wait for the NTP answer.
+- Daily NTP resync at `NTP_DAILY_SYNC_HOUR`.
+- Serial capture recipe in docs/development.md.
 
 ## 0.2.0 - 2026-10-22
 

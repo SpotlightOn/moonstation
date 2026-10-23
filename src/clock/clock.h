@@ -6,6 +6,10 @@
 #include "esp_err.h"
 
 esp_err_t clock_init(void);
+
+// Points localtime() at the configured zone from settings. Called at boot
+// and again when the setup page changes the timezone.
+void clock_apply_timezone(void);
 void clock_render(const uint16_t *background);
 
 // True while the configurable deep sleep window (local hours) is active;

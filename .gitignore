@@ -8,3 +8,5 @@ sdkconfig
 sdkconfig.old
 managed_components/
 sdkconfig.*
+src/web/certs.h
+WORKX

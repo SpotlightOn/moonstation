@@ -9,15 +9,8 @@
 #include "esp_log.h"
 #include "display.h"
 #include "audio.h"
+#include "settings.h"
 #include "slideshow.h"
-
-#if __has_include("config.h")
-#include "config.h"
-#endif
-
-#ifndef SLIDE_INTERVAL_MS
-#define SLIDE_INTERVAL_MS 10000
-#endif
 
 static const char *TAG = "moonstation";
 
@@ -34,10 +27,12 @@ void app_main(void)
     uint32_t flash_size = 0;
     esp_flash_get_size(NULL, &flash_size);
 
+    settings_init(); // after nvs_flash_init, before anything reads a value
+
     ESP_LOGI(TAG, "moonstation boot");
     ESP_LOGI(TAG, "chip: %s, cores=%d, flash=%lu MB",
              CONFIG_IDF_TARGET, chip_info.cores, (unsigned long)(flash_size / (1024 * 1024)));
-    ESP_LOGI(TAG, "slide interval: %d ms", SLIDE_INTERVAL_MS);
+    ESP_LOGI(TAG, "slide interval: %lu ms", (unsigned long)settings.slide_interval_ms);
 
     ESP_ERROR_CHECK(display_init());
     if (esp_sleep_get_wakeup_causes() & (1 << ESP_SLEEP_WAKEUP_TIMER)) {

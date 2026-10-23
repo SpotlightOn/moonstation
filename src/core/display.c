@@ -8,19 +8,7 @@
 #include "esp_lcd_panel_vendor.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_gc9a01.h"
-
-#if __has_include("config.h")
-#include "config.h"
-#endif
-
-#ifndef LCD_SPI_HZ
-#define LCD_SPI_HZ 40000000
-#endif
-
-// Boot brightness; keep in sync with the auto-dimming full level.
-#ifndef BACKLIGHT_FULL_PCT
-#define BACKLIGHT_FULL_PCT 100
-#endif
+#include "settings.h"
 
 static const char *TAG = "display";
 static esp_lcd_panel_io_handle_t io_handle = NULL;
@@ -55,7 +43,7 @@ esp_err_t display_init(void)
 
     ESP_LOGI(TAG, "init panel IO");
     esp_lcd_panel_io_spi_config_t io_config = GC9A01_PANEL_IO_SPI_CONFIG(PIN_LCD_CS, PIN_LCD_DC, NULL, NULL);
-    io_config.pclk_hz = LCD_SPI_HZ;
+    io_config.pclk_hz = settings.lcd_spi_hz;
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(SPI3_HOST, &io_config, &io_handle));
 
     ESP_LOGI(TAG, "init GC9A01 panel");
@@ -137,7 +125,7 @@ void display_backlight_init(void)
 void display_backlight_on(void)
 {
     display_backlight_init();
-    display_backlight_set_brightness(BACKLIGHT_FULL_PCT);
+    display_backlight_set_brightness(settings.backlight_full_pct);
 }
 
 void display_backlight_off(void)
