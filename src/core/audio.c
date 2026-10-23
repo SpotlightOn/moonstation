@@ -11,6 +11,7 @@
 #define AUDIO_VOLUME 60
 #endif
 
+#include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/i2s_std.h"
 #include "esp_codec_dev.h"
@@ -71,6 +72,12 @@ static esp_err_t init_i2s(void)
 
 esp_err_t audio_init(void)
 {
+    // After a deep sleep wake-up the PA enable pad is still latched low
+    // (off) by the hold taken for deep sleep; release it before the codec
+    // driver reconfigures the pin. Never held on normal boots, so this is
+    // always safe to call.
+    gpio_hold_dis((gpio_num_t)PIN_AUD_PA);
+
     i2c_master_bus_handle_t i2c_bus = init_i2c();
     if (!i2c_bus) return ESP_FAIL;
 

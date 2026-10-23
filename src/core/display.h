@@ -23,4 +23,14 @@ void display_backlight_on(void);
 void display_backlight_off(void);
 void display_backlight_set_brightness(int percent);
 
+// Configure the backlight LEDC channel but leave the pad dark. Used on deep
+// sleep wake-ups, where the mode manager decides whether the display lights
+// up at all; later brightness changes work either way.
+void display_backlight_init(void);
+
+// Put the panel and the backlight to sleep and latch the SPI pads with GPIO
+// holds before the firmware enters deep sleep. display_init() releases the
+// holds again after the next wake-up and reinitializes the panel.
+void display_deep_sleep_prepare(void);
+
 #endif // DISPLAY_H

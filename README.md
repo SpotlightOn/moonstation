@@ -66,6 +66,13 @@ is git-ignored and must never be committed. Available macros:
 | `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
 | `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
+| `CLOCK_DEEP_SLEEP` | `0` | deep sleep for the clock mode inside the night window |
+| `CLOCK_DEEP_SLEEP_FROM` | `23` | first local hour of the deep sleep window |
+| `CLOCK_DEEP_SLEEP_TO` | `7` | first local hour after the deep sleep window |
+| `TIMEZONE_STD_OFFSET_HOURS` | `1` | standard (winter) UTC offset for the clock |
+| `TIMEZONE_EU_DST` | `1` | observe European summer time (`0` off) |
+| `NTP_SERVER` | `pool.ntp.org` | NTP server for the boot, daily and wake-up syncs |
+| `NTP_DAILY_SYNC_HOUR` | `4` | local hour of the daily resync while awake (`-1` off) |
 | `CLOCK_SHOW_BATTERY` | `1` | battery indicator below the weekday (`0` hides it) |
 | `BATTERY_WARN_PCT` | `10` | charge level that turns the indicator red and beeps (`0` off) |
 | `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
@@ -85,6 +92,19 @@ Optional WiFi settings enable NTP time sync for the clock mode:
 
 The WiFi and NTP stack is always compiled into the firmware; without
 `WIFI_SSID` the clock simply keeps the compile time and the radio stays off.
+With WiFi configured the firmware connects, waits for the first NTP answer
+(up to 10 s) and then switches the radio off again; if no server answers it
+keeps the time it had before. It repeats that at `NTP_DAILY_SYNC_HOUR`, since
+the RTC drifts by seconds per day without a 32.768 kHz crystal.
+
+With `CLOCK_DEEP_SLEEP` set to `1` the clock mode drops into deep sleep inside
+the local hours of the sleep window (default 23:00 to 07:00). The display
+stays dark for the whole window - no minute redraws, no flashes -; a touch
+lights it up for the normal dimming period, and the wake-up at the end of the
+window brings the clock back at its dimmed level. Every wake-up is a full
+reboot: the RTC keeps the time, a touch or the end of the window wakes the
+board. The RTC drifts by seconds per day without a 32.768 kHz crystal, so the
+wake at the end of the window resyncs via NTP.
 
 ## SD card
 

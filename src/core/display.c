@@ -28,6 +28,26 @@ static esp_lcd_panel_handle_t panel_handle = NULL;
 
 esp_err_t display_init(void)
 {
+    // Coming out of deep sleep the pads are still latched by the holds taken
+    // in display_deep_sleep_prepare(); release them before reconfiguring.
+    gpio_deep_sleep_hold_dis();
+    gpio_hold_dis(PIN_LCD_MOSI);
+    gpio_hold_dis(PIN_LCD_SCLK);
+    gpio_hold_dis(PIN_LCD_CS);
+    gpio_hold_dis(PIN_LCD_DC);
+    gpio_hold_dis(PIN_LCD_RST);
+    gpio_hold_dis(PIN_LCD_BL);
+
+    // Park the backlight off immediately: a deep sleep wake-up inside the
+    // sleep window must stay dark from the very first millisecond. The pad
+    // becomes an LEDC output again in display_backlight_init().
+    gpio_config_t bl_cfg = {
+        .pin_bit_mask = 1ULL << PIN_LCD_BL,
+        .mode = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&bl_cfg);
+    gpio_set_level((gpio_num_t)PIN_LCD_BL, 1); // active low: off
+
     ESP_LOGI(TAG, "init SPI bus");
     spi_bus_config_t buscfg = GC9A01_PANEL_BUS_SPI_CONFIG(PIN_LCD_SCLK, PIN_LCD_MOSI,
                                                           240 * 240 * 2);
@@ -93,7 +113,7 @@ void display_backlight_set_brightness(int percent)
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
 }
 
-void display_backlight_on(void)
+void display_backlight_init(void)
 {
     ledc_timer_config_t tcfg = {
         .speed_mode = LEDC_MODE,
@@ -111,11 +131,43 @@ void display_backlight_on(void)
         .duty = (1 << 13) - 1,
         .hpoint = 0,
     };
-    ledc_channel_config(&ccfg);
+    ledc_channel_config(&ccfg); // 100% duty on an active low pad: off
+}
+
+void display_backlight_on(void)
+{
+    display_backlight_init();
     display_backlight_set_brightness(BACKLIGHT_FULL_PCT);
 }
 
 void display_backlight_off(void)
 {
     display_backlight_set_brightness(0);
+}
+
+void display_deep_sleep_prepare(void)
+{
+    // Backlight fully off first: LEDC stops switching in deep sleep and the
+    // pad would otherwise float at an undefined brightness (it is held in
+    // this off level below).
+    display_backlight_set_brightness(0);
+
+    // Sleep the panel: it draws microamps instead of milliamps and shows no
+    // meaningful image without the backlight anyway. display_init() performs
+    // a hardware reset plus the full init sequence after the next wake-up,
+    // which brings the panel back from sleep mode.
+    esp_lcd_panel_io_tx_param(io_handle, 0x10, NULL, 0); // GC9A01 sleep in
+
+    // Latch every pad the panel listens on. Deep sleep turns the digital
+    // pads into high-Z inputs; without the holds the floating SPI lines
+    // would feed noise into the panel.
+    gpio_hold_en(PIN_LCD_MOSI);
+    gpio_hold_en(PIN_LCD_SCLK);
+    gpio_hold_en(PIN_LCD_CS);
+    gpio_hold_en(PIN_LCD_DC);
+    gpio_hold_en(PIN_LCD_RST);
+    gpio_hold_en(PIN_LCD_BL);
+    gpio_deep_sleep_hold_en();
+
+    // The PA enable pad is latched low (off) by audio_init(); see there.
 }

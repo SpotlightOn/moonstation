@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "esp_chip_info.h"
 #include "esp_flash.h"
+#include "esp_sleep.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "display.h"
@@ -39,7 +40,15 @@ void app_main(void)
     ESP_LOGI(TAG, "slide interval: %d ms", SLIDE_INTERVAL_MS);
 
     ESP_ERROR_CHECK(display_init());
-    display_backlight_on();
+    if (esp_sleep_get_wakeup_causes() & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
+        // Deep sleep wake-up: keep the display dark until the mode manager
+        // decides otherwise, so a wake-up inside the sleep window cannot
+        // flash at full brightness. The LEDC channel is configured, just
+        // parked at 0%, so interactions still light it up.
+        display_backlight_init();
+    } else {
+        display_backlight_on();
+    }
 
     // Audio init is best-effort: a failure must not block the slideshow.
     if (audio_init() != ESP_OK) {

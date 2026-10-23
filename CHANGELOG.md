@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-- Always link the WiFi and NTP stack; without `WIFI_SSID` the clock keeps the
-  compile time and the radio stays off.
+- Deep sleep for the clock mode inside a configurable night window.
+- Local time instead of UTC for the clock and the sleep window.
+- Fix clock time: summer time in the compile time, wait for the real NTP answer.
+- Daily NTP resync at `NTP_DAILY_SYNC_HOUR`, `NTP_SERVER` honoured.
 
 ## 0.2.0 - 2026-10-22
 
