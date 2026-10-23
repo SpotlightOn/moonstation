@@ -6,6 +6,8 @@
 #include "clock.h"
 #include "esp_pm.h"
 #include "esp_timer.h"
+#include "esp_sleep.h"
+#include "driver/gpio.h"
 #include "pins.h"
 #include "esp_log.h"
 #include "jpeg_decoder.h"
@@ -49,6 +51,18 @@
 #endif
 #ifndef BACKLIGHT_DEEP_AFTER_SEC
 #define BACKLIGHT_DEEP_AFTER_SEC 60
+#endif
+
+// Deep sleep for the clock mode inside the local hours of
+// CLOCK_DEEP_SLEEP_FROM/CLOCK_DEEP_SLEEP_TO (1 = on, 0 = off). Inside the
+// window the display stays dark and the board sleeps until the window ends;
+// a touch lights it up for the normal dimming period. Outside the window the
+// clock stays visible at its dimmed level as usual. Every wake-up is a full
+// reboot: the RTC keeps the time (seconds per day of drift without a
+// 32.768 kHz crystal), display/audio release their GPIO holds again, and
+// clock_init() skips WiFi/NTP while the window lasts.
+#ifndef CLOCK_DEEP_SLEEP
+#define CLOCK_DEEP_SLEEP 0
 #endif
 
 static const char *TAG = "slideshow";
@@ -531,6 +545,15 @@ void slideshow_run(void)
     slide_fb = display_get_framebuffer();
     clock_init();
     last_interaction = esp_timer_get_time() / 1000000LL;
+#if CLOCK_DEEP_SLEEP
+    // A timer wake-up continued a deep sleep: either the sleep window just
+    // ended (the clock reappears dimmed) or it still lasts and the loop sends
+    // the board straight back to sleep. Both want the backlight schedule to
+    // start at its dimmest level instead of lighting the display up again.
+    if (esp_sleep_get_wakeup_causes() & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
+        last_interaction -= BACKLIGHT_DEEP_AFTER_SEC + 1;
+    }
+#endif
 
     // Power management: keep max CPU frequency while slideshow work is active.
     esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "slideshow", &cpu_max_lock);
@@ -561,6 +584,33 @@ void slideshow_run(void)
             active_mode = next;
             active_mode->enter();
         }
+
+#if CLOCK_DEEP_SLEEP
+        // Clock mode only, and only inside the sleep window: once the
+        // backlight schedule has run down, deep sleep until the window ends
+        // (or a touch wakes the board). The check runs before on_wake() and
+        // update_backlight(), so a wake-up that finds the window still active
+        // stays completely dark - no redraw, no backlight. The touch line must
+        // be idle-high, otherwise the ext0 wake would fire right away and
+        // loop the boot.
+        if (active_mode == &clock_mode && clock_deep_sleep_window_active() &&
+            esp_timer_get_time() / 1000000LL - last_interaction > BACKLIGHT_DEEP_AFTER_SEC &&
+            gpio_get_level((gpio_num_t)PIN_TP_INT) != 0) {
+            int64_t sleep_us = clock_deep_sleep_window_end_us();
+            if (sleep_us > 1000000) {
+                ESP_LOGI(TAG, "deep sleep, window ends in %lld s",
+                         (long long)(sleep_us / 1000000));
+                display_deep_sleep_prepare();
+                // The touch controller signals with open-drain low pulses;
+                // keep the line pulled up so it cannot float into a false
+                // wake-up.
+                gpio_set_pull_mode((gpio_num_t)PIN_TP_INT, GPIO_PULLUP_ONLY);
+                esp_sleep_enable_timer_wakeup((uint64_t)sleep_us);
+                esp_sleep_enable_ext0_wakeup((gpio_num_t)PIN_TP_INT, 0);
+                esp_deep_sleep_start();
+            }
+        }
+#endif
 
         active_mode->on_wake();
         update_backlight();

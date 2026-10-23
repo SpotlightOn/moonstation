@@ -72,6 +72,11 @@ code. Available macros:
 | `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
 | `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
+| `CLOCK_DEEP_SLEEP` | `0` | deep sleep for the clock mode inside the night window |
+| `CLOCK_DEEP_SLEEP_FROM` | `23` | first local hour of the deep sleep window |
+| `CLOCK_DEEP_SLEEP_TO` | `7` | first local hour after the deep sleep window |
+| `TIMEZONE_STD_OFFSET_HOURS` | `1` | standard (winter) UTC offset for the clock |
+| `TIMEZONE_EU_DST` | `1` | observe European summer time (`0` off) |
 | `CLOCK_SHOW_BATTERY` | `1` | battery indicator below the weekday (`0` hides it) |
 | `BATTERY_WARN_PCT` | `10` | charge level that turns the indicator red and beeps (`0` off) |
 | `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
@@ -80,11 +85,44 @@ code. Available macros:
 
 Optional WiFi settings enable NTP time sync for the clock mode.
 
+## Deep sleep in clock mode
+
+`CLOCK_DEEP_SLEEP` makes the clock mode deep sleep inside the local hours of
+`CLOCK_DEEP_SLEEP_FROM`/`CLOCK_DEEP_SLEEP_TO` (default 23:00 to 07:00). The
+display stays dark for the whole window: the board sleeps until the end of
+the window, and a touch lights the clock up for the normal dimming period.
+Deep sleep reboots the chip on every wake-up, so the pieces fit together
+like this:
+
+- The wake sources are the end of the window (timer) and touch (GPIO 12,
+  ext0). The sleep entry refuses to run while the touch line is already low,
+  so a held touch cannot loop the boot.
+- The sleep check runs before the redraw and the backlight schedule. A
+  wake-up that finds the window still active goes straight back to sleep -
+  dark from the first millisecond (`main.c` configures the LEDC channel with
+  `display_backlight_init()` instead of lighting it up), so no wake-up can
+  flash the display at night.
+- `display_deep_sleep_prepare()` blanks the backlight, puts the GC9A01 into
+  sleep mode and latches the SPI pads (plus the PA pad in `audio_init()`)
+  with GPIO holds; without them the pads float and feed noise into the chips
+  while the CPU sleeps. There is no PWM in deep sleep, so the backlight can
+  only be fully on or off while asleep.
+- On the next boot, `display_init()` and `audio_init()` release the holds
+  again and reinitialize the panel and the codec from scratch.
+- `clock_init()` keeps the RTC time instead of resetting it to the compile
+  time and skips WiFi/NTP while the window lasts. The wake at the end of the
+  window syncs via NTP again; the RTC has no 32.768 kHz crystal on this board
+  and drifts by seconds per day while asleep.
+- The window and the displayed time use the local zone from
+  `TIMEZONE_STD_OFFSET_HOURS` and `TIMEZONE_EU_DST`, applied as a POSIX TZ
+  string in `apply_timezone()` before the compile time is interpreted.
+
 ## Display and backlight
 
 The panel is a GC9A01 driven over SPI. The backlight on GPIO 42 is active low
-and PWM controlled (`display_backlight_set_brightness`). `display_backlight_on`
-configures the LEDC timer/channel; off sets 0%.
+and PWM controlled (`display_backlight_set_brightness`). `display_backlight_init`
+configures the LEDC timer/channel and leaves the pad dark; `display_backlight_on`
+adds full brightness; off sets 0%.
 
 Colors in the code are plain RGB565; the byte swap for the panel happens
 exactly once per write path with `RGB565_SWAP()` from `display.h`: in
@@ -159,6 +197,17 @@ burn-in. Time comes from the compile time by default; WiFi/NTP can be enabled
 in `config.h`. The WiFi and SNTP stack is always linked (`wifi_connect()` and
 `sntp_sync()` in `clock.c`), so firmware built without credentials keeps the
 compile time and never touches the radio.
+
+`__DATE__`/`__TIME__` are read as local time: the TZ string is installed
+first and `mktime()` resolves summer time, so only the build machine's own
+clock error remains in the fallback. With credentials the firmware waits for
+the real SNTP answer instead of guessing from a valid-looking system time.
+
+The boot sync is followed by a daily one at `NTP_DAILY_SYNC_HOUR`, armed with
+a one-shot `esp_timer` and run in its own task, because the radio/NTP cycle
+takes seconds that the timer task must not spend blocked. The WiFi setup
+(netif, event loop, driver) runs once per boot, only start/connect/stop
+repeat, so a second station interface can never be created.
 
 Below the weekday sits the battery row: a small battery icon filled to the
 charge level, the percentage next to it, and an upward arrow while charging.

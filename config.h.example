@@ -25,20 +25,16 @@
 #define CITY_CODE "101020100"
 
 // ---------------- Time ----------------
-// NTP server the clock syncs against
+// NTP server the clock syncs against; the clock queries it on every boot and
+// at the first wake-up outside the deep sleep window.
 #define NTP_SERVER "time.nist.gov"
-// Resync interval in minutes
-#define NTP_SYNC_MINUTES 20
+// Local hour of the daily resync while the board stays awake (-1 = off)
+#define NTP_DAILY_SYNC_HOUR 4
 
 // ---------------- Time zone ----------------
-// 0 = use the UTC offset that OpenWeatherMap reports for the detected city.
-//     Correct while the weather request succeeds, but the clock falls back to
-//     UTC as soon as that request fails (expired or rate limited API key).
-// 1 = use the fixed standard offset below plus the European summer time rule.
-#define TIMEZONE_SOURCE 1
-
 // Standard (winter) UTC offset in hours, decimals allowed.
-// Germany = 1 (CET). Summer time adds one hour on top.
+// Germany = 1 (CET). Summer time adds one hour on top. Applies to the
+// displayed time and to the deep sleep window below.
 #define TIMEZONE_STD_OFFSET_HOURS 1
 
 // 1 = observe European summer time (last Sunday in March to the last Sunday in
@@ -64,6 +60,17 @@
 // #define BACKLIGHT_DEEP_PCT 5
 // #define BACKLIGHT_DIM_AFTER_SEC 15
 // #define BACKLIGHT_DEEP_AFTER_SEC 60
+// Deep sleep for the clock mode inside a sleep window (1 = on, 0 = off): the
+// display stays dark for the whole window and the board sleeps until the
+// window ends; a touch lights it up for the normal dimming period. The RTC
+// keeps the time while sleeping (drifts by seconds per day without a
+// 32.768 kHz crystal); with WiFi configured the wake at the end of the window
+// resyncs via NTP, without WiFi the RTC drifts until power-on.
+// #define CLOCK_DEEP_SLEEP 0
+// Sleep window, local hours [FROM, TO). A window that ends before it starts
+// crosses midnight (23 -> 7); equal hours disable it.
+// #define CLOCK_DEEP_SLEEP_FROM 23
+// #define CLOCK_DEEP_SLEEP_TO 7
 
 // ---------------- Audio ----------------
 // Audio
