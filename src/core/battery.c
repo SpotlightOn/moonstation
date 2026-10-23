@@ -9,44 +9,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "pins.h"
+#include "settings.h"
 
-#if __has_include("config.h")
-#include "config.h"
-#endif
-
-// Polarity of the charging input: the board holds the line high while the
-// charger is active, which is what the vendor firmware assumes.
-#ifndef BATTERY_CHARGING_ACTIVE_HIGH
-#define BATTERY_CHARGING_ACTIVE_HIGH 1
-#endif
-
-// ADC samples averaged per reading.
-#ifndef BATTERY_SAMPLE_COUNT
-#define BATTERY_SAMPLE_COUNT 3
-#endif
-
-// Minimum age of a cached reading in seconds. The battery barely moves, so
-// the ADC is sampled by a periodic timer at most once per interval and the
-// display simply reads the cache as often as it likes.
-#ifndef BATTERY_REFRESH_SEC
-#define BATTERY_REFRESH_SEC 300
-#endif
-
-// Charge level (percent) at or below which a short warning beep sounds on
-// every refresh. Set to 0 to disable the warning.
-#ifndef BATTERY_WARN_PCT
-#define BATTERY_WARN_PCT 10
-#endif
-
-// Tone of that warning: deliberately short and quiet, it is meant to inform
-// rather than to startle.
+// Tone of the low battery warning: deliberately short and quiet, it is meant
+// to inform rather than to startle.
 #define BATTERY_BEEP_FREQ_HZ 1500
 #define BATTERY_BEEP_MS 120
-
-// Output volume of the warning beep in percent (0-100).
-#ifndef BATTERY_BEEP_VOLUME
-#define BATTERY_BEEP_VOLUME 30
-#endif
 
 static const char *TAG = "battery";
 
@@ -128,8 +96,9 @@ esp_err_t battery_init(void)
     // Effective settings after config.h has been applied, so a wrong value
     // in the local config shows up here instead of having to be guessed.
     ESP_LOGI(TAG, "settings: warn<=%d%%, refresh %ds, beep vol %d%%, charge pin active %s",
-             BATTERY_WARN_PCT, BATTERY_REFRESH_SEC, BATTERY_BEEP_VOLUME,
-             BATTERY_CHARGING_ACTIVE_HIGH ? "high" : "low");
+             settings.battery_warn_pct, settings.battery_refresh_sec,
+             settings.battery_beep_volume,
+             settings.battery_charging_active_high ? "high" : "low");
 
     // Sampling on a timer keeps the reading and the warning beep on a fixed
     // cadence even while a mode that never draws the clock is active.
@@ -139,7 +108,7 @@ esp_err_t battery_init(void)
     };
     if (esp_timer_create(&timer_cfg, &refresh_timer) == ESP_OK) {
         esp_timer_start_periodic(refresh_timer,
-                                 (uint64_t)BATTERY_REFRESH_SEC * 1000000ULL);
+                                 (uint64_t)settings.battery_refresh_sec * 1000000ULL);
     } else {
         ESP_LOGW(TAG, "refresh timer unavailable, sampling on demand");
     }
@@ -147,13 +116,13 @@ esp_err_t battery_init(void)
 }
 
 // Samples the ADC and the charging input, then stores the result in the
-// cache. Runs at most once per BATTERY_REFRESH_SEC.
+// cache. Runs at most once per settings.battery_refresh_sec.
 static void battery_refresh(void)
 {
     uint32_t sum = 0;
     uint32_t avg = 0;
     bool sampled = true;
-    for (int i = 0; i < BATTERY_SAMPLE_COUNT; i++) {
+    for (int i = 0; i < settings.battery_sample_count; i++) {
         int raw = 0;
         if (adc_oneshot_read(adc_unit, adc_chan, &raw) != ESP_OK) {
             ESP_LOGW(TAG, "ADC read failed");
@@ -161,11 +130,11 @@ static void battery_refresh(void)
             break;
         }
         sum += (uint32_t)raw;
-        if (i + 1 < BATTERY_SAMPLE_COUNT) vTaskDelay(pdMS_TO_TICKS(2));
+        if (i + 1 < settings.battery_sample_count) vTaskDelay(pdMS_TO_TICKS(2));
     }
 
     if (sampled) {
-        avg = sum / BATTERY_SAMPLE_COUNT;
+        avg = sum / settings.battery_sample_count;
 
         if (avg <= level_table[0].adc) {
             cached_level = level_table[0].level;
@@ -186,11 +155,8 @@ static void battery_refresh(void)
     }
 
     int pin_level = gpio_get_level(PIN_BAT_CHG);
-#if BATTERY_CHARGING_ACTIVE_HIGH
-    bool charging = (pin_level == 1);
-#else
-    bool charging = (pin_level == 0);
-#endif
+    bool charging = settings.battery_charging_active_high ? (pin_level == 1)
+                                                          : (pin_level == 0);
     if (pin_level != last_charge_level) {
         last_charge_level = pin_level;
         ESP_LOGI(TAG, "charging: %s (pin level %d)",
@@ -206,13 +172,12 @@ static void battery_refresh(void)
                  cached_level, (unsigned)avg, charging ? "yes" : "no");
     }
 
-#if BATTERY_WARN_PCT > 0
-    if (sampled && cached_level >= 0 && cached_level <= BATTERY_WARN_PCT) {
+    if (settings.battery_warn_pct > 0 && sampled && cached_level >= 0 &&
+        cached_level <= settings.battery_warn_pct) {
         ESP_LOGW(TAG, "battery low: %d%%", cached_level);
         audio_play_tone_at(BATTERY_BEEP_FREQ_HZ, BATTERY_BEEP_MS,
-                           BATTERY_BEEP_VOLUME);
+                           settings.battery_beep_volume);
     }
-#endif
 }
 
 static void refresh_timer_cb(void *arg)
@@ -225,7 +190,7 @@ static bool cache_is_fresh(void)
 {
     if (cached_at_us == 0) return false;
     return esp_timer_get_time() - cached_at_us <
-           (int64_t)BATTERY_REFRESH_SEC * 1000000LL;
+           (int64_t)settings.battery_refresh_sec * 1000000LL;
 }
 
 int battery_level(void)

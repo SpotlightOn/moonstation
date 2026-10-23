@@ -1,15 +1,8 @@
 #include "audio.h"
 #include "pins.h"
+#include "settings.h"
 #include "esp_log.h"
 #include "esp_err.h"
-
-#if __has_include("config.h")
-#include "config.h"
-#endif
-
-#ifndef AUDIO_VOLUME
-#define AUDIO_VOLUME 60
-#endif
 
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -147,7 +140,7 @@ esp_err_t audio_init(void)
 
 void audio_play_tone(int freq_hz, int duration_ms)
 {
-    audio_play_tone_at(freq_hz, duration_ms, AUDIO_VOLUME);
+    audio_play_tone_at(freq_hz, duration_ms, settings.audio_volume);
 }
 
 void audio_play_tone_at(int freq_hz, int duration_ms, int volume_pct)
