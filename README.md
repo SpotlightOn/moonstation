@@ -79,7 +79,7 @@ fallbacks in that file. Available macros:
 | `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
 | `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
-| `CLOCK_DEEP_SLEEP` | `0` | deep sleep for the clock mode inside the night window |
+| `CLOCK_DEEP_SLEEP` | `0` | builds the night deep sleep in and enables it by default |
 | `CLOCK_DEEP_SLEEP_FROM` | `23` | first local hour of the deep sleep window |
 | `CLOCK_DEEP_SLEEP_TO` | `7` | first local hour after the deep sleep window |
 | `TIMEZONE_STD_OFFSET_HOURS` | `1` | standard (winter) UTC offset for the clock |
@@ -111,7 +111,10 @@ keeps the time it had before. It repeats that at `NTP_DAILY_SYNC_HOUR`, since
 the RTC drifts by seconds per day without a 32.768 kHz crystal.
 
 With `CLOCK_DEEP_SLEEP` set to `1` the clock mode drops into deep sleep inside
-the local hours of the sleep window (default 23:00 to 07:00). The display
+the local hours of the sleep window (default 23:00 to 07:00). The compile
+switch only decides whether that code is in the firmware and what the box
+starts with; the setup page's *Deep sleep at night* switch turns the same
+behaviour off and on at any time. The display
 stays dark for the whole window - no minute redraws, no flashes -; a touch
 lights it up for the normal dimming period, and the wake-up at the end of the
 window brings the clock back at its dimmed level. Every wake-up is a full

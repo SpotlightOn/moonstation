@@ -9,7 +9,8 @@ clock mode toggled by a long press. The slide interval is configurable in
 
 ## 1. Hardware target (from the reference projects)
 
-Board: Spotpear ESP32-S3 1.28" BOX, ESP32-S3, 16 MB flash, no PSRAM, native USB.
+Board: Spotpear ESP32-S3 1.28" BOX, ESP32-S3 N16R8, 16 MB flash, 8 MB octal
+PSRAM, native USB.
 
 | Function | Pins |
 | --- | --- |
@@ -138,7 +139,8 @@ limits to agents. Macros (all with `#ifndef` fallbacks in code):
 
 ## 11. Risks and notes
 
-- No PSRAM: keep buffers small; one 240x240 RGB565 frame is ~115 KB.
+- PSRAM is there but not enabled (`CONFIG_SPIRAM` off): keep buffers small; one
+  240x240 RGB565 frame is ~115 KB.
 - ESP-IDF 5.3 (PlatformIO) vs 6.0.2 (system): develop against PlatformIO's
   5.3.x; do not rely on 6.x APIs.
 - GC9A01 vendor init sequence differs from the standard driver; reuse the
