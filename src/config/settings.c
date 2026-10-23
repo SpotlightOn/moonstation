@@ -244,3 +244,21 @@ esp_err_t settings_save(void)
     }
     return err;
 }
+
+esp_err_t settings_reset_defaults(void)
+{
+    // The WiFi credentials belong to this box and were entered by hand, the
+    // build time value for them is a template at best. Everything else goes
+    // back to the configuration the firmware was built with.
+    char ssid[sizeof(settings.wifi_ssid)];
+    char password[sizeof(settings.wifi_password)];
+    memcpy(ssid, settings.wifi_ssid, sizeof(ssid));
+    memcpy(password, settings.wifi_password, sizeof(password));
+
+    settings_defaults();
+    memcpy(settings.wifi_ssid, ssid, sizeof(settings.wifi_ssid));
+    memcpy(settings.wifi_password, password, sizeof(settings.wifi_password));
+
+    ESP_LOGI(TAG, "settings reset to the defaults, WiFi kept");
+    return settings_save();
+}

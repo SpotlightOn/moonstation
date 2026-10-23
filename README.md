@@ -4,7 +4,9 @@ ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
 JPEG images from an SD card and offers a clock mode (HH:MM with date) toggled
 by a long press on the touch screen. Touch input and the built-in speaker are
-supported, and the backlight dims automatically when idle.
+supported, and the backlight dims automatically when idle. Holding a finger on
+the display for 5 seconds opens a setup page over HTTPS, where WiFi, timings
+and levels are changed without rebuilding the firmware.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
 
@@ -12,16 +14,21 @@ supported, and the backlight dims automatically when idle.
 
 - Endless slideshow of 240x240 baseline JPEGs, sorted by file name
 - Touch tap advances to the next slide immediately
+- **Setup web UI over HTTPS**: hold a finger still on the display for 5 s; a
+  short beep confirms that the box took the gesture, then it serves its own
+  setup page with a login. It changes WiFi, slideshow, backlight, sleep window,
+  NTP, timezone, audio and battery at runtime, and a "Reset to default" button
+  restores the firmware defaults (WiFi credentials stay). A red dot on the
+  lower edge shows that it runs, the display shows its address, and it shuts
+  itself down when idle
 - Long press (held over 0.5 s, released) cycles through clock, slideshow and
-  combined clock+slideshow modes (boots into clock mode)
-- Hold the finger still for 5 s to open the setup page over HTTPS, shown by
-  a red dot in the middle of the lower edge; it shuts itself down when idle
+  combined clock+slideshow modes (boots into clock mode); only a hold that
+  stays on for the full 5 s goes to the setup page instead, so a quick press
+  can never open it by accident
 - Clock mode shows the time and date, with a small jitter for burn-in
   prevention
 - Battery indicator below the weekday: icon with the charge level, the
   percentage and an arrow while charging
-- Setup page (HTTPS, optional login) with the runtime settings: WiFi,
-  slideshow, backlight, sleep window, NTP, timezone, audio and battery
 - Automatic backlight dimming after 15 s and deep dim after 60 s
 - Audio feedback on touch and mode changes
 - Graceful handling of a missing SD card or empty image directory

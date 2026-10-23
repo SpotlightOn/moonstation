@@ -74,4 +74,9 @@ esp_err_t settings_save(void);
 // Reloads the build-time defaults into the struct without touching NVS.
 void settings_defaults(void);
 
+// Stores the build-time defaults again, keeping the WiFi credentials of this
+// box: those were typed in here, the config.h value is only a template. This
+// is what the setup page's "Reset to default" button calls.
+esp_err_t settings_reset_defaults(void);
+
 #endif // SETTINGS_H

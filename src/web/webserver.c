@@ -47,27 +47,36 @@ static const char index_html[] =
     "<!doctype html><html><head><meta charset='utf-8'>"
     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
     "<title>Moonstation setup</title><style>"
-    "body{font:15px system-ui,sans-serif;background:#111;color:#eee;margin:0;padding:1em;max-width:24em}"
-    "h1{font-size:1.15em;margin:.1em 0}"
+    "body{font:15px system-ui,sans-serif;background:#111;color:#eee;"
+    "margin:clamp(1em,2.5vw,4em) auto;padding:1em;max-width:768px;"
+    "box-sizing:border-box}"
+    "h1{font-size:clamp(1.15em,4vw,2.4em);margin:.1em 0}"
     "p.h{color:#888;margin:.1em 0 1em;font-size:.85em}"
+    "#f{display:grid;gap:.2em 1.2em;margin-bottom:1.8em;"
+    "grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))}"
     "label{display:block;margin:.65em 0 .15em;color:#8ad}"
     "input{width:100%;padding:.45em;border-radius:.3em;border:1px solid #333;"
     "background:#1b1b1b;color:#eee;box-sizing:border-box}"
-    "button{margin:1em .5em 0 0;padding:.5em .9em;border:0;border-radius:.3em;"
+    "#controls{display:flex;flex-wrap:wrap;gap:.5em}"
+    "button{padding:.5em .9em;border:0;border-radius:.3em;"
     "background:#2b6cb0;color:#fff;font-size:1em}"
     "button.d{background:#8b2222}"
     "#m{margin-top:.9em;color:#8fc;min-height:1.2em}"
     "</style></head><body>"
     "<h1>Moonstation</h1>"
-    "<p class='h'>Settings of the box. Save writes them to flash; WiFi changes"
-    " apply when the server starts the next time.</p>"
+    "<p class='h'>Settings of the box. Save writes them to flash; WiFi and the"
+    " setup login apply at the next server start.</p>"
     "<form id='f'></form>"
+    "<div id='controls'>"
     "<button onclick='save()'>Save</button>"
+    "<button class='d' onclick='defaults()'>Reset to default</button>"
     "<button class='d' onclick='stop()'>Stop server</button>"
+    "</div>"
     "<p id='m'></p><script>"
     "var F=[['wifi_ssid','WiFi SSID','text'],"
     "['wifi_password','WiFi password','password'],"
-    "['slide_interval_ms','Slide interval (ms)','number'],"
+    "['slide_dir','Slide directory','text'],"
+    "['slide_interval_ms','Slide interval (s)','number',1000],"
     "['backlight_full_pct','Backlight full (%)','number'],"
     "['backlight_dim_pct','Backlight dim (%)','number'],"
     "['backlight_deep_pct','Backlight deep (%)','number'],"
@@ -85,19 +94,30 @@ static const char index_html[] =
     "['web_user','Setup user','text'],"
     "['web_password','Setup password','password']];"
     "var f=document.getElementById('f'),m=document.getElementById('m');"
-    "F.forEach(function(x){var l=document.createElement('label');"
-    "l.textContent=x[1];var i=document.createElement('input');"
-    "i.id=x[0];i.type=x[2];f.appendChild(l);f.appendChild(i);});"
+    "F.forEach(function(x){var w=document.createElement('div'),"
+    "l=document.createElement('label'),i=document.createElement('input');"
+    "l.textContent=x[1];i.id=x[0];i.type=x[2];"
+    "w.appendChild(l);w.appendChild(i);f.appendChild(w);});"
     "function say(t){m.textContent=t}"
+    // A field may carry a scale: what is stored and posted keeps the firmware
+    // unit, the form shows what a human types.
+    "function val(x,v){document.getElementById(x[0]).value=(x[3]?Math.round(v/x[3]):v)}"
     "function load(){fetch('/api/config').then(function(r){return r.text()})"
     ".then(function(t){var d=new URLSearchParams(t);"
-    "F.forEach(function(x){document.getElementById(x[0]).value=d.get(x[0])||''});"
+    "F.forEach(function(x){val(x,d.get(x[0])||'')});"
     "say('loaded')}).catch(function(){say('could not load')})}"
     "function save(){var d=new URLSearchParams();"
-    "F.forEach(function(x){d.set(x[0],document.getElementById(x[0]).value)});"
+    "F.forEach(function(x){var v=document.getElementById(x[0]).value;"
+    "d.set(x[0],x[3]?Math.round(v*x[3]):v)});"
     "fetch('/api/config',{method:'POST',body:d.toString()})"
     ".then(function(r){say(r.ok?'saved':'rejected');setTimeout(load,800)})"
     ".catch(function(){say('could not save')})}"
+    "function defaults(){"
+    "if(!confirm('Every setting back to the firmware default? WiFi stays.'))"
+    "return;"
+    "fetch('/api/reset',{method:'POST'})"
+    ".then(function(r){say(r.ok?'reset to defaults':'rejected');setTimeout(load,800)})"
+    ".catch(function(){say('could not reset')})}"
     "function stop(){fetch('/api/shutdown',{method:'POST'})"
     ".then(function(){say('server stops now')}).catch(function(){});"
     "setTimeout(function(){say('server stopped')},3000)}"
@@ -177,6 +197,7 @@ typedef struct {
 static const field_t FIELDS[] = {
     FIELD(wifi_ssid, F_STR, 33, 0, 0),
     FIELD(wifi_password, F_STR, 65, 0, 0),
+    FIELD(slide_dir, F_STR, 32, 0, 0),
     FIELD(slide_interval_ms, F_U32, 0, 1000, 3600000),
     FIELD(backlight_full_pct, F_U8, 0, 10, 100),
     FIELD(backlight_dim_pct, F_U8, 0, 0, 100),
@@ -408,6 +429,19 @@ static esp_err_t config_post(httpd_req_t *req)
     return httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
 }
 
+static esp_err_t reset_post(httpd_req_t *req)
+{
+    if (!auth_ok(req)) return deny(req);
+    touch_activity();
+    if (settings_reset_defaults() != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
+                                   "reset failed");
+    }
+    clock_apply_timezone(); // the zone is applied on every render
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_send(req, "reset done", HTTPD_RESP_USE_STRLEN);
+}
+
 static esp_err_t shutdown_post(httpd_req_t *req)
 {
     if (!auth_ok(req)) return deny(req);
@@ -428,6 +462,9 @@ static const httpd_uri_t URI_CONFIG_POST = {
 };
 static const httpd_uri_t URI_SHUTDOWN = {
     .uri = "/api/shutdown", .method = HTTP_POST, .handler = shutdown_post,
+};
+static const httpd_uri_t URI_RESET = {
+    .uri = "/api/reset", .method = HTTP_POST, .handler = reset_post,
 };
 
 //
@@ -529,6 +566,7 @@ static bool start_server(void)
     httpd_register_uri_handler(server, &URI_CONFIG_GET);
     httpd_register_uri_handler(server, &URI_CONFIG_POST);
     httpd_register_uri_handler(server, &URI_SHUTDOWN);
+    httpd_register_uri_handler(server, &URI_RESET);
 
     snprintf(ui_status.ip, sizeof(ui_status.ip), IPSTR, IP2STR(&ip.ip));
     ui_status.web_server = true;

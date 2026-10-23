@@ -228,8 +228,9 @@ picked up by the manager automatically.
 ## Setup mode and status dot
 
 A 5 s hold without drifting (`TOUCH_SETUP_MOVE_PX` in `core/touch.c`) is the
-setup gesture: `slideshow.c` calls `web_toggle()`, which starts the setup
-server or stops it again. While the server listens, `ui_status_draw()` paints
+setup gesture: `slideshow.c` acknowledges it with a 120 ms beep and calls
+`web_toggle()`, which starts the setup server or stops it again. While the
+server listens, `ui_status_draw()` paints
 a red dot in the middle of the lower edge - the round panel cuts off the
 corners, so the dot sits a little above the bottom instead of on it - and
 `clock.c` shows the address of the page in the row the battery indicator uses.
@@ -253,10 +254,11 @@ shows. Nothing else in the firmware knows it exists.
 - **Auth**: HTTP Basic, checked against a header built once at start. An
   empty `WEB_PASSWORD` switches authentication off and logs a warning.
 - **API**: `GET /api/config` returns the editable subset as form encoded
-  `key=value` pairs, `POST /api/config` applies and stores it, and
-  `POST /api/shutdown` closes the page. `URLSearchParams` on the client side
-  reads and writes that format, so quotes, spaces and umlauts in passwords
-  survive without an escaping bug on either side.
+  `key=value` pairs, `POST /api/config` applies and stores it,
+  `POST /api/reset` stores the build time defaults again while keeping the WiFi
+  credentials, and `POST /api/shutdown` closes the page. `URLSearchParams` on
+  the client side reads and writes that format, so quotes, spaces and umlauts
+  in passwords survive without an escaping bug on either side.
 - **Radio**: the server holds the link with `net_wifi_hold()` for as long as
   it listens, so the daily NTP sync cannot take the page down.
 - **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so

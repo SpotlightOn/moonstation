@@ -3,7 +3,8 @@
 ## Unreleased
 
 - Setup web UI over HTTPS, opened by holding the finger still for 5 s:
-  settings form, optional login, red dot while it runs.
+  settings form, optional login, "Reset to default" that keeps the WiFi
+  credentials, red dot while it runs.
 - Serial capture recipe with a DTR/RTS reset in docs/development.md.
 - Compile-time feature switches in `src/config/features.h`.
 - Deep sleep for the clock mode inside a configurable night window.
