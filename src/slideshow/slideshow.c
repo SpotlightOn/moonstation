@@ -2,6 +2,8 @@
 #include "display.h"
 #include "sdcard.h"
 #include "touch.h"
+#include "status.h"
+#include "webserver.h"
 #include "audio.h"
 #include "clock.h"
 #include "esp_pm.h"
@@ -21,49 +23,11 @@
 #include <sys/time.h>
 #include <sys/stat.h>
 
-#if __has_include("config.h")
-#include "config.h"
-#endif
-
-#ifndef SLIDE_INTERVAL_MS
-#define SLIDE_INTERVAL_MS 10000
-#endif
-#ifndef SLIDE_DIR
-#define SLIDE_DIR "/slides"
-#endif
+#include "features.h"
+#include "settings.h"
 
 #define MAX_SLIDE_BYTES (512 * 1024)
 #define MAX_SLIDES 256
-
-// Backlight auto-dimming: levels in percent, delays in seconds (all of them
-// overridable via config.h).
-#ifndef BACKLIGHT_FULL_PCT
-#define BACKLIGHT_FULL_PCT 100
-#endif
-#ifndef BACKLIGHT_DIM_PCT
-#define BACKLIGHT_DIM_PCT 20
-#endif
-#ifndef BACKLIGHT_DEEP_PCT
-#define BACKLIGHT_DEEP_PCT 5
-#endif
-#ifndef BACKLIGHT_DIM_AFTER_SEC
-#define BACKLIGHT_DIM_AFTER_SEC 15
-#endif
-#ifndef BACKLIGHT_DEEP_AFTER_SEC
-#define BACKLIGHT_DEEP_AFTER_SEC 60
-#endif
-
-// Deep sleep for the clock mode inside the local hours of
-// CLOCK_DEEP_SLEEP_FROM/CLOCK_DEEP_SLEEP_TO (1 = on, 0 = off). Inside the
-// window the display stays dark and the board sleeps until the window ends;
-// a touch lights it up for the normal dimming period. Outside the window the
-// clock stays visible at its dimmed level as usual. Every wake-up is a full
-// reboot: the RTC keeps the time (seconds per day of drift without a
-// 32.768 kHz crystal), display/audio release their GPIO holds again, and
-// clock_init() skips WiFi/NTP while the window lasts.
-#ifndef CLOCK_DEEP_SLEEP
-#define CLOCK_DEEP_SLEEP 0
-#endif
 
 static const char *TAG = "slideshow";
 // Shared RGB565 frame buffer, assigned in slideshow_run(). Both the slides
@@ -90,6 +54,24 @@ static void wake_main_task(void)
     }
 }
 
+// Set when something changed that the current frame does not show yet (the
+// setup indicator, for example): the modes redraw on the minute boundary, so
+// a change like that needs its own pass through the loop.
+static volatile bool force_redraw = false;
+
+static bool take_force_redraw(void)
+{
+    if (!force_redraw) return false;
+    force_redraw = false;
+    return true;
+}
+
+void ui_force_redraw(void)
+{
+    force_redraw = true;
+    wake_main_task();
+}
+
 static void wake_timer_cb(void *arg)
 {
     wake_main_task();
@@ -99,11 +81,11 @@ static void wake_timer_cb(void *arg)
 static int64_t next_backlight_step_us(int64_t now_us)
 {
     int64_t idle_sec = now_us / 1000000LL - last_interaction;
-    if (idle_sec < BACKLIGHT_DIM_AFTER_SEC) {
-        return (BACKLIGHT_DIM_AFTER_SEC - idle_sec) * 1000000LL;
+    if (idle_sec < settings.backlight_dim_after_sec) {
+        return (settings.backlight_dim_after_sec - idle_sec) * 1000000LL;
     }
-    if (idle_sec < BACKLIGHT_DEEP_AFTER_SEC) {
-        return (BACKLIGHT_DEEP_AFTER_SEC - idle_sec) * 1000000LL;
+    if (idle_sec < settings.backlight_deep_after_sec) {
+        return (settings.backlight_deep_after_sec - idle_sec) * 1000000LL;
     }
     return INT64_MAX; // already at the deepest level
 }
@@ -122,12 +104,12 @@ static void update_backlight(void)
     if (last_interaction == 0) last_interaction = now;
     int64_t idle = now - last_interaction;
     int brightness;
-    if (idle > BACKLIGHT_DEEP_AFTER_SEC) {
-        brightness = BACKLIGHT_DEEP_PCT;
-    } else if (idle > BACKLIGHT_DIM_AFTER_SEC) {
-        brightness = BACKLIGHT_DIM_PCT;
+    if (idle > settings.backlight_deep_after_sec) {
+        brightness = settings.backlight_deep_pct;
+    } else if (idle > settings.backlight_dim_after_sec) {
+        brightness = settings.backlight_dim_pct;
     } else {
-        brightness = BACKLIGHT_FULL_PCT;
+        brightness = settings.backlight_full_pct;
     }
     // Only touch the LEDC peripheral when the level actually changes.
     if (brightness != last_brightness) {
@@ -176,7 +158,7 @@ static void scan_slides(void)
 {
     free_slides();
     char dirpath[128];
-    snprintf(dirpath, sizeof(dirpath), "/sdcard%s", SLIDE_DIR);
+    snprintf(dirpath, sizeof(dirpath), "/sdcard%s", settings.slide_dir);
     DIR *d = opendir(dirpath);
     if (!d) {
         ESP_LOGW(TAG, "cannot open %s", dirpath);
@@ -203,6 +185,7 @@ static void fill_color(uint16_t color)
 {
     uint16_t px = RGB565_SWAP(color);
     for (size_t i = 0; i < 240 * 240; i++) slide_fb[i] = px;
+    ui_status_draw(slide_fb);
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
@@ -236,6 +219,7 @@ static esp_err_t show_slide(const char *path)
         ESP_LOGE(TAG, "decode failed %s: %s", path, esp_err_to_name(ret));
         return ret;
     }
+    ui_status_draw(slide_fb);
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, out.width, out.height, slide_fb);
     return ESP_OK;
 }
@@ -272,7 +256,7 @@ static void show_current_slide(void)
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     slide_deadline_us = esp_timer_get_time() +
-                        (int64_t)SLIDE_INTERVAL_MS * 1000;
+                        (int64_t)settings.slide_interval_ms * 1000;
     slide_active = true;
 }
 
@@ -339,8 +323,8 @@ static void request_mode(const ui_mode_t *mode)
 static void mode_on_long_press(void)
 {
     last_interaction = esp_timer_get_time() / 1000000LL;
-    display_backlight_set_brightness(BACKLIGHT_FULL_PCT);
-    last_brightness = BACKLIGHT_FULL_PCT;
+    display_backlight_set_brightness(settings.backlight_full_pct);
+    last_brightness = settings.backlight_full_pct;
     const ui_mode_t *target = active_mode->next;
     audio_play_tone(target->enter_tone_hz, 80);
     request_mode(target);
@@ -349,8 +333,8 @@ static void mode_on_long_press(void)
 static void on_touch_tap(void)
 {
     last_interaction = esp_timer_get_time() / 1000000LL;
-    display_backlight_set_brightness(BACKLIGHT_FULL_PCT);
-    last_brightness = BACKLIGHT_FULL_PCT;
+    display_backlight_set_brightness(settings.backlight_full_pct);
+    last_brightness = settings.backlight_full_pct;
     if (active_mode && active_mode->on_tap) {
         active_mode->on_tap();
     }
@@ -363,6 +347,20 @@ static void on_long_press(void)
         active_mode->on_long_press();
     }
     wake_main_task();
+}
+
+// Setup gesture: finger at one spot for 5 s. Starts the setup page, or
+// stops it again when it already runs; the red dot and the address on the
+// screen follow whatever the server reports.
+static void on_setup_gesture(void)
+{
+    last_interaction = esp_timer_get_time() / 1000000LL;
+    display_backlight_set_brightness(settings.backlight_full_pct);
+    last_brightness = settings.backlight_full_pct;
+    audio_play_tone(1046, 120); // the gesture was taken, even if WiFi fails
+    ESP_LOGI(TAG, "setup gesture, %s the setup page",
+             web_is_running() ? "stopping" : "starting");
+    web_toggle();
 }
 
 // Keep maximum CPU frequency only while slideshow work runs; the clock mode
@@ -402,7 +400,7 @@ static void clock_on_wake(void)
     struct tm tm;
     time_t now = time(NULL);
     localtime_r(&now, &tm);
-    if (tm.tm_min != last_clock_min) {
+    if (take_force_redraw() || tm.tm_min != last_clock_min) {
         clock_render(NULL);
         last_clock_min = tm.tm_min;
     }
@@ -439,6 +437,7 @@ static void slideshow_on_tap(void)
 
 static void slideshow_on_wake(void)
 {
+    if (take_force_redraw()) slide_active = false; // redraw with the overlay
     slideshow_step();
 }
 
@@ -472,6 +471,10 @@ static void combined_enter(void)
 static void combined_on_wake(void)
 {
     bool redrawn = slideshow_step();
+    if (take_force_redraw() && !redrawn) {
+        slide_active = false;
+        redrawn = slideshow_step();
+    }
     struct tm tm;
     time_t now = time(NULL);
     localtime_r(&now, &tm);
@@ -551,7 +554,7 @@ void slideshow_run(void)
     // the board straight back to sleep. Both want the backlight schedule to
     // start at its dimmest level instead of lighting the display up again.
     if (esp_sleep_get_wakeup_causes() & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
-        last_interaction -= BACKLIGHT_DEEP_AFTER_SEC + 1;
+        last_interaction -= settings.backlight_deep_after_sec + 1;
     }
 #endif
 
@@ -572,6 +575,7 @@ void slideshow_run(void)
 
     touch_init(on_touch_tap);
     touch_set_long_press_cb(on_long_press);
+    touch_set_setup_cb(on_setup_gesture);
     active_mode->enter();
 
     while (1) {
@@ -594,7 +598,8 @@ void slideshow_run(void)
         // be idle-high, otherwise the ext0 wake would fire right away and
         // loop the boot.
         if (active_mode == &clock_mode && clock_deep_sleep_window_active() &&
-            esp_timer_get_time() / 1000000LL - last_interaction > BACKLIGHT_DEEP_AFTER_SEC &&
+            esp_timer_get_time() / 1000000LL - last_interaction >
+                settings.backlight_deep_after_sec &&
             gpio_get_level((gpio_num_t)PIN_TP_INT) != 0) {
             int64_t sleep_us = clock_deep_sleep_window_end_us();
             if (sleep_us > 1000000) {

@@ -12,27 +12,30 @@ supported, and the backlight dims automatically when idle.
 
 - Endless slideshow of 240x240 baseline JPEGs, sorted by file name
 - Touch tap advances to the next slide immediately
-- Long press (about 0.5 s) cycles through clock, slideshow and combined
-  clock+slideshow modes (boots into clock mode)
+- Long press (held over 0.5 s, released) cycles through clock, slideshow and
+  combined clock+slideshow modes (boots into clock mode)
+- Hold the finger still for 5 s to open the setup page over HTTPS, shown by
+  a red dot in the middle of the lower edge; it shuts itself down when idle
 - Clock mode shows the time and date, with a small jitter for burn-in
   prevention
 - Battery indicator below the weekday: icon with the charge level, the
   percentage and an arrow while charging
+- Setup page (HTTPS, optional login) with the runtime settings: WiFi,
+  slideshow, backlight, sleep window, NTP, timezone, audio and battery
 - Automatic backlight dimming after 15 s and deep dim after 60 s
 - Audio feedback on touch and mode changes
 - Graceful handling of a missing SD card or empty image directory
 
 ## Planned
 
-- Web UI for configuration.
-- A third mode, slideshow + clock commbined
-- alarm clock (requires web ui)
+- alarm clock
 
 ## Prerequisites
 
 - PlatformIO (use the bundled venv binary shown below)
 - Python 3 with Pillow (for regenerating the clock font)
 - ImageMagick 7 (`magick`) for preparing slide images
+- OpenSSL (the build generates the self-signed certificate of the setup page)
 
 ## Build, flash, monitor
 
@@ -53,7 +56,10 @@ stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ## Configuration
 
 Copy `config.h.example` to `config.h` in the project root and adjust. `config.h`
-is git-ignored and must never be committed. Available macros:
+is git-ignored and must never be committed. The macros below set the defaults:
+they are read into runtime settings at boot (`src/config/settings.c`), NVS can
+override them, and a firmware without `config.h` behaves exactly like the
+fallbacks in that file. Available macros:
 
 | Macro | Default | Meaning |
 | --- | --- | --- |

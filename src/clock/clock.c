@@ -1,6 +1,7 @@
 #include "clock.h"
 #include "battery.h"
 #include "display.h"
+#include "status.h"
 #include "font.h"
 #include "esp_log.h"
 #include "esp_err.h"
@@ -14,92 +15,19 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#if __has_include("config.h")
-#include "config.h"
-#endif
+#include "features.h"
+#include "settings.h"
 
-// The WiFi, netif and SNTP code is always compiled and linked so every
-// firmware image ships with the full stack; without credentials below the
-// clock simply keeps the compile time and never touches the radio.
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_netif.h"
-#include "esp_sntp.h"
-#include "freertos/event_groups.h"
-
-// WiFi credentials come from config.h; empty means "not configured".
-#ifndef WIFI_SSID
-#define WIFI_SSID ""
-#endif
-#ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD ""
-#endif
-
-// NTP server the clock syncs against; config.h may override it.
-#ifndef NTP_SERVER
-#define NTP_SERVER "pool.ntp.org"
-#endif
-
-static const char wifi_ssid[] = WIFI_SSID;
-static const char wifi_password[] = WIFI_PASSWORD;
-
-// True when config.h supplied WiFi credentials. The check runs at runtime on
-// purpose: it keeps wifi_connect() and sntp_sync() referenced, so the linker
-// always keeps the WiFi and SNTP stack - also in firmware built without a
-// config.h.
-static bool wifi_configured(void)
-{
-    return wifi_ssid[0] != '\0';
-}
-
-// Listen interval for max modem sleep, in beacon intervals (about 100 ms
-// each). Needed so WIFI_PS_MAX_MODEM actually sleeps longer than the AP DTIM
-// period; falls back to the beacon interval when left at 0.
-#ifndef WIFI_LISTEN_INTERVAL
-#define WIFI_LISTEN_INTERVAL 10
-#endif
-
-// Battery indicator below the weekday (0 = off).
-#ifndef CLOCK_SHOW_BATTERY
-#define CLOCK_SHOW_BATTERY 1
-#endif
-
-// Standard (winter) UTC offset in hours for localtime(); decimals allowed.
-// Germany = 1 (CET). Must be set before the compile time is interpreted.
-#ifndef TIMEZONE_STD_OFFSET_HOURS
-#define TIMEZONE_STD_OFFSET_HOURS 1
-#endif
-
-// Observe European summer time: last Sunday in March to the last Sunday in
-// October (0 keeps the standard offset all year).
-#ifndef TIMEZONE_EU_DST
-#define TIMEZONE_EU_DST 1
-#endif
-
-// Deep sleep window of the clock mode, local hours [FROM, TO). A window that
-// ends before it starts crosses midnight (23 -> 7); equal hours disable it.
-#ifndef CLOCK_DEEP_SLEEP_FROM
-#define CLOCK_DEEP_SLEEP_FROM 23
-#endif
-#ifndef CLOCK_DEEP_SLEEP_TO
-#define CLOCK_DEEP_SLEEP_TO 7
-#endif
-
-// Local hour of the daily NTP resync (-1 = off). The boot sync only runs
-// once per power cycle, while the RTC drifts by seconds per day; the deep
-// sleep wake-up at the end of the night window syncs on its own, so this
-// mainly covers boards that stay awake.
-#ifndef NTP_DAILY_SYNC_HOUR
-#define NTP_DAILY_SYNC_HOUR 4
-#endif
+// The radio and the SNTP stack live in core/net.c: the setup web server
+// needs the same bring-up, and two copies of it would drift apart.
+#include "net.h"
 
 // Point localtime() at the configured zone via a POSIX TZ string. The EU
 // rules switch at 01:00 UTC, which matches the POSIX default switch times.
-static void apply_timezone(void)
+void clock_apply_timezone(void)
 {
     // POSIX offsets are inverted: local = UTC - offset.
-    int offset_min = -(int)(TIMEZONE_STD_OFFSET_HOURS * 60 +
-                            (TIMEZONE_STD_OFFSET_HOURS >= 0 ? 0.5 : -0.5));
+    int offset_min = -settings.tz_std_offset_min;
     char tz[40];
     int h = offset_min / 60;
     int m = abs(offset_min % 60);
@@ -108,18 +36,12 @@ static void apply_timezone(void)
     } else {
         snprintf(tz, sizeof(tz), "XXX%d", h);
     }
-#if TIMEZONE_EU_DST
-    strncat(tz, "YYY,M3.5.0/2,M10.5.0/3", sizeof(tz) - strlen(tz) - 1);
-#endif
+    if (settings.tz_eu_dst) {
+        strncat(tz, "YYY,M3.5.0/2,M10.5.0/3", sizeof(tz) - strlen(tz) - 1);
+    }
     setenv("TZ", tz, 1);
     tzset();
 }
-
-// Charge level at or below which the indicator turns red. Shares the
-// threshold with the low battery beep in battery.c.
-#ifndef BATTERY_WARN_PCT
-#define BATTERY_WARN_PCT 10
-#endif
 
 // Geometry of the battery icon, in pixels. Kept small so it sits quietly
 // below the weekday instead of competing with the date font.
@@ -137,6 +59,7 @@ static void apply_timezone(void)
 #define COLOR_BATT_LOW 0xF800      // red
 #define COLOR_BATT_CHARGING 0x01E0 // dark green, so the icon does not glare
 #define COLOR_BATT_NORMAL 0xFFFF   // white
+#define COLOR_IP 0xAD55             // mid grey, the address must not glare
 #define COLOR_WHITE 0xFFFF         // white
 #define COLOR_BLACK 0x0000         // black
 
@@ -182,16 +105,16 @@ static void set_compile_time(void)
 
 bool clock_deep_sleep_window_active(void)
 {
-    if (CLOCK_DEEP_SLEEP_FROM == CLOCK_DEEP_SLEEP_TO) return false;
+    if (settings.clock_deep_sleep_from == settings.clock_deep_sleep_to) return false;
     time_t now;
     time(&now);
     struct tm tm;
     localtime_r(&now, &tm);
-    if (CLOCK_DEEP_SLEEP_FROM < CLOCK_DEEP_SLEEP_TO) {
-        return tm.tm_hour >= CLOCK_DEEP_SLEEP_FROM && tm.tm_hour < CLOCK_DEEP_SLEEP_TO;
+    if (settings.clock_deep_sleep_from < settings.clock_deep_sleep_to) {
+        return tm.tm_hour >= settings.clock_deep_sleep_from && tm.tm_hour < settings.clock_deep_sleep_to;
     }
     // The window crosses midnight (e.g. 23 -> 7).
-    return tm.tm_hour >= CLOCK_DEEP_SLEEP_FROM || tm.tm_hour < CLOCK_DEEP_SLEEP_TO;
+    return tm.tm_hour >= settings.clock_deep_sleep_from || tm.tm_hour < settings.clock_deep_sleep_to;
 }
 
 // Microseconds until the sleep window ends, 0 while the window is inactive.
@@ -204,7 +127,7 @@ int64_t clock_deep_sleep_window_end_us(void)
     time(&now);
     struct tm tm;
     localtime_r(&now, &tm);
-    tm.tm_hour = CLOCK_DEEP_SLEEP_TO;
+    tm.tm_hour = settings.clock_deep_sleep_to;
     tm.tm_min = 0;
     tm.tm_sec = 0;
     tm.tm_isdst = -1;
@@ -213,87 +136,20 @@ int64_t clock_deep_sleep_window_end_us(void)
     return (int64_t)(end - now) * 1000000LL;
 }
 
-// True once netif, event loop and driver are set up. The daily resync brings
-// the radio up a second time, and creating the default netif twice would
-// register a second station interface.
-static bool wifi_ready = false;
-
-// Brings up the station interface and waits for an address. Returns false
-// when the AP does not answer, so the caller can skip the pointless SNTP
-// wait instead of burning its timeout on a link that never came up.
-static bool wifi_connect(void)
-{
-    if (!wifi_ready) {
-        esp_netif_init();
-        esp_event_loop_create_default();
-        esp_netif_create_default_wifi_sta();
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        esp_wifi_init(&cfg);
-        wifi_ready = true;
-    }
-    wifi_config_t wcfg = {0};
-    strncpy((char *)wcfg.sta.ssid, wifi_ssid, sizeof(wcfg.sta.ssid));
-    strncpy((char *)wcfg.sta.password, wifi_password, sizeof(wcfg.sta.password));
-    wcfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    wcfg.sta.listen_interval = WIFI_LISTEN_INTERVAL;
-    esp_wifi_set_mode(WIFI_MODE_STA);
-    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
-    esp_wifi_set_config(WIFI_IF_STA, &wcfg);
-    esp_wifi_start();
-    esp_wifi_connect();
-
-    // Wait up to 10 s for an IP.
-    for (int i = 0; i < 50; i++) {
-        vTaskDelay(pdMS_TO_TICKS(200));
-        esp_netif_ip_info_t ip;
-        esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-        if (netif && esp_netif_get_ip_info(netif, &ip) == ESP_OK && ip.ip.addr != 0) {
-            ESP_LOGI(TAG, "WiFi connected");
-            return true;
-        }
-    }
-    ESP_LOGW(TAG, "WiFi connect timeout");
-    return false;
-}
-
-// Starts SNTP and blocks until the first answer has set the system clock.
-// The clock is compiled with and without credentials in a config.h, so the
-// wait simply times out and the previous time stays in place when no server
-// answers. Returns false on timeout.
-static bool sntp_sync(void)
-{
-    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    // The radio goes off right after this call, so there is nothing to gain
-    // from stepping the clock smoothly over minutes.
-    esp_sntp_set_sync_mode(SNTP_SYNC_MODE_IMMED);
-    esp_sntp_setservername(0, NTP_SERVER);
-    esp_sntp_init();
-    for (int i = 0; i < 50; i++) {
-        vTaskDelay(pdMS_TO_TICKS(200));
-        // Only the library itself can tell a real sync from a clock that
-        // merely looks valid: set_compile_time() already puts the system
-        // time far above any epoch threshold.
-        if (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
-            ESP_LOGI(TAG, "NTP synced from %s", NTP_SERVER);
-            return true;
-        }
-    }
-    ESP_LOGW(TAG, "NTP sync timeout, keeping the time from before");
-    return false;
-}
-
 // One sync cycle: radio up, first NTP answer, radio off again. Shared by the
-// boot and by the daily resync.
+// boot and by the daily resync. The hold keeps the link up while the setup
+// server listens, so a sync at night cannot take the page down.
 static void ntp_sync_cycle(const char *reason)
 {
-    if (!wifi_connect()) {
+    net_wifi_hold();
+    if (!net_wifi_up()) {
         ESP_LOGW(TAG, "no WiFi for the %s sync, keeping the time from before", reason);
+        net_wifi_release();
         return;
     }
-    sntp_sync();
-    esp_sntp_stop(); // stop the poll timer before the radio goes off
-    esp_wifi_stop();
-    ESP_LOGI(TAG, "WiFi stopped after the %s sync", reason);
+    net_ntp_sync();
+    net_wifi_release();
+    net_wifi_down();
 }
 
 static esp_timer_handle_t ntp_timer = NULL;
@@ -305,7 +161,7 @@ static int64_t ntp_sync_delay_us(void)
     time(&now);
     struct tm tm;
     localtime_r(&now, &tm);
-    tm.tm_hour = NTP_DAILY_SYNC_HOUR;
+    tm.tm_hour = settings.ntp_daily_sync_hour;
     tm.tm_min = 0;
     tm.tm_sec = 0;
     tm.tm_isdst = -1;
@@ -331,7 +187,7 @@ static void ntp_sync_timer_cb(void *arg)
 // Arms the one-shot timer for the next occurrence of the sync hour.
 static void ntp_sync_schedule(void)
 {
-    if (NTP_DAILY_SYNC_HOUR < 0 || !wifi_configured()) return;
+    if (settings.ntp_daily_sync_hour < 0 || !net_wifi_configured()) return;
     const esp_timer_create_args_t timer_args = {
         .callback = ntp_sync_timer_cb,
         .name = "ntp_sync",
@@ -341,12 +197,12 @@ static void ntp_sync_schedule(void)
         return;
     }
     esp_timer_start_once(ntp_timer, ntp_sync_delay_us());
-    ESP_LOGI(TAG, "daily NTP sync armed for %02d:00", NTP_DAILY_SYNC_HOUR);
+    ESP_LOGI(TAG, "daily NTP sync armed for %02d:00", settings.ntp_daily_sync_hour);
 }
 
 esp_err_t clock_init(void)
 {
-    apply_timezone(); // before anything interprets wall-clock time
+    clock_apply_timezone(); // before anything interprets wall-clock time
     set_compile_time();
 #if CLOCK_SHOW_BATTERY
     if (battery_init() != ESP_OK) {
@@ -356,9 +212,9 @@ esp_err_t clock_init(void)
     bool deep_sleep_wake = esp_sleep_get_wakeup_causes() & (1 << ESP_SLEEP_WAKEUP_TIMER);
     // Deep sleep wake-ups stay radio-free while the sleep window lasts; the
     // first wake outside it syncs via NTP again, so drift cannot pile up.
-    if (wifi_configured() && !(deep_sleep_wake && clock_deep_sleep_window_active())) {
+    if (net_wifi_configured() && !(deep_sleep_wake && clock_deep_sleep_window_active())) {
         ntp_sync_cycle("boot");
-    } else if (wifi_configured()) {
+    } else if (net_wifi_configured()) {
         ESP_LOGI(TAG, "deep sleep wake-up inside the sleep window, skipping WiFi/NTP");
     } else {
         ESP_LOGI(TAG, "no WiFi configured, clock keeps compile time");
@@ -390,6 +246,27 @@ static void draw_time_text(const char *s, int x, int y, uint16_t color, uint16_t
             font_draw_char(font_time_glyphs[idx], font_time_W, font_time_H, cx, y, px, fb);
         }
         cx += font_time_W;
+    }
+}
+
+// Address of the setup page, drawn in the row of the battery indicator: two
+// lines, because the round display cuts off the outer characters further
+// down and a single line of fourteen digits would not fit there anymore.
+static void draw_setup_ip(const char *ip, int y, uint16_t *fb) {
+    char line[20];
+    int len = (int)strlen(ip);
+    // Break after the last dot that leaves both halves short enough.
+    int split = 0;
+    for (int i = 0; i < len && i < 11; i++) {
+        if (ip[i] == '.' && len - (i + 1) <= 11) split = i + 1;
+    }
+    snprintf(line, sizeof(line), "%.*s", split ? split : len, ip);
+    draw_text(line, (240 - (int)strlen(line) * font_date_W) / 2, y,
+              font_date_glyphs, font_date_W, font_date_H, COLOR_IP, fb);
+    if (split > 0) {
+        snprintf(line, sizeof(line), "%s", ip + split);
+        draw_text(line, (240 - (int)strlen(line) * font_date_W) / 2, y + font_date_H,
+                  font_date_glyphs, font_date_W, font_date_H, COLOR_IP, fb);
     }
 }
 
@@ -442,7 +319,7 @@ static void draw_battery_row(int x, int y, uint16_t *fb) {
     uint16_t color = COLOR_BATT_NORMAL;
     if (charging) {
         color = COLOR_BATT_CHARGING;
-    } else if (level <= BATTERY_WARN_PCT) {
+    } else if (level <= settings.battery_warn_pct) {
         color = COLOR_BATT_LOW;
     }
 
@@ -509,8 +386,12 @@ void clock_render(const uint16_t *background)
 
 #if CLOCK_SHOW_BATTERY
     y += font_date_H + 4;
-    draw_battery_row(jx, y + jy, fb);
+    // The address of the setup page replaces the battery row while the
+    // server runs; both want the same row and the address matters more.
+    if (ui_status.ip[0] == '\0') draw_battery_row(jx, y + jy, fb);
 #endif
+    if (ui_status.ip[0] != '\0') draw_setup_ip(ui_status.ip, y + jy, fb);
 
+    ui_status_draw(fb);
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, fb);
 }

@@ -15,21 +15,31 @@ moonstation/
 │   ├── main.c
 │   ├── CMakeLists.txt
 │   ├── idf_component.yml
+│   ├── config/
+│   │   ├── features.h
+│   │   ├── settings.c
+│   │   └── settings.h
 │   ├── core/
 │   │   ├── display.c/.h
 │   │   ├── sdcard.c/.h
 │   │   ├── touch.c/.h
 │   │   ├── audio.c/.h
 │   │   ├── battery.c/.h
+│   │   ├── net.c/.h
+│   │   ├── status.c/.h
 │   │   └── pins.h
 │   ├── clock/
 │   │   ├── clock.c/.h
 │   │   └── font.h
-│   └── slideshow/
-│       ├── slideshow.c/.h
+│   ├── slideshow/
+│   │   ├── slideshow.c/.h
+│   └── web/
+│       ├── webserver.c/.h
+│       └── certs.h           (generated, git-ignored)
 ├── scripts/
 │   ├── build_slides.sh
 │   ├── generate_font.py
+│   ├── generate_cert.sh
 │   └── DejaVuSans-Bold.ttf
 └── docs/
     └── development.md
@@ -40,6 +50,7 @@ moonstation/
 - PlatformIO (use the bundled venv binary)
 - Python 3 with Pillow (clock font regeneration)
 - ImageMagick 7 (`magick`) for preparing slide images
+- OpenSSL (the build generates the self-signed certificate of the setup page)
 
 ## Build, flash, monitor
 
@@ -55,11 +66,34 @@ Serial capture without the monitor:
 stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ```
 
+That only shows traffic while the port is open, so it misses everything the
+board printed before. To capture a boot, open the port and reset the chip
+over the DTR/RTS lines of the USB-Serial-JTAG first:
+
+```bash
+~/.platformio/penv/bin/python - <<'EOF'
+import serial, time
+s = serial.Serial("/dev/ttyACM0", 115200, timeout=0.5)
+s.dtr = False; s.rts = True;  time.sleep(0.1)
+s.dtr = True;  s.rts = False; time.sleep(0.05)
+s.dtr = False; s.rts = False
+while True:
+    print(s.readline().decode(errors="replace"), end="")
+EOF
+```
+
 ## Configuration
 
 Copy `config.h.example` to `config.h` and adjust. `config.h` is git-ignored and
 off limits to agents; always edit the example and add `#ifndef` fallbacks in
 code. Available macros:
+
+At build time `config.h` seeds the defaults of `src/config/settings.c`, which
+is the only file including it. The macros land in `settings_t`, NVS overlays
+stored values on top (`settings_init()` at boot, `settings_save()` after a
+change), and the modules read the struct. Without NVS content the firmware
+behaves exactly like the macros say - the web UI only adds a way to change
+the subset of values that makes sense at runtime.
 
 | Macro | Default | Meaning |
 | --- | --- | --- |
@@ -145,11 +179,12 @@ to the SD card.
 
 CST816D on I2C port 1. Touch is interrupt driven: the controller's INT line
 (GPIO 12, falling edge) wakes a dedicated task that reads the controller over
-I2C, so the normal path costs only two wake-ups per interaction. Taps fire on
-release; a long press (about 0.5 s) fires as soon as the hold crosses the
-threshold, without waiting for the release. If no release interrupt arrives
-after that, the task falls back to slow 100 ms polling until the finger is
-lifted. Touch is optional: missing hardware is logged and ignored.
+I2C, so the normal path costs only two wake-ups per interaction. Taps and long
+presses fire on release: a tap is a hold under 0.5 s, a longer one switches the
+mode. Deferring both keeps a deliberate hold free for the setup gesture, where
+the finger has to stay at one spot for 5 s. If no release interrupt arrives,
+the task falls back to slow 100 ms polling until the finger is lifted. Touch is
+optional: missing hardware is logged and ignored.
 
 ## Audio
 
@@ -183,20 +218,57 @@ manager when the mode wants to be woken next.
 The modes are `clock`, `slideshow` and `combined` (clock + slideshow). A long
 press cycles through them in this order: **clock -> slideshow -> combined ->
 clock**. The device boots into clock mode. `enter()` always redraws the
-full initial state, so a mode switch is visible immediately (a long press
-performs the switch right away, not on the next slide or minute).
+full initial state, so a mode switch is visible right away, not on the next
+slide or minute. A long press switches when the finger is lifted.
 
 Adding a new mode (a weather station mode is planned): implement one
 `ui_mode_t` struct, link it into the cycle with the `next` field and it is
 picked up by the manager automatically.
 
+## Setup mode and status dot
+
+A 5 s hold without drifting (`TOUCH_SETUP_MOVE_PX` in `core/touch.c`) is the
+setup gesture: `slideshow.c` calls `web_toggle()`, which starts the setup
+server or stops it again. While the server listens, `ui_status_draw()` paints
+a red dot in the middle of the lower edge - the round panel cuts off the
+corners, so the dot sits a little above the bottom instead of on it - and
+`clock.c` shows the address of the page in the row the battery indicator uses.
+
+`core/status.c` exists so the UI only has to read flags: the web server
+writes them, clock and slideshow draw them, and neither includes the other.
+
+## Setup web server
+
+`src/web/webserver.c` is deliberately isolated: it talks to `core/net.c` for
+the radio, to `settings` for the values and to `status` for what the screen
+shows. Nothing else in the firmware knows it exists.
+
+- **Transport**: HTTPS on port 443 (`esp_https_server`). The certificate and
+  the key are self-signed and generated at configure time by
+  `scripts/generate_cert.sh` into `web/certs.h`, which is git-ignored, so no
+  private key lands in the repository. The browser warns about the
+  certificate; that is expected for a device without a domain.
+- **Sockets**: a TLS socket costs about 40 kB of RAM, so the pool holds two;
+  if the heap cannot take the second one, the start retries with one.
+- **Auth**: HTTP Basic, checked against a header built once at start. An
+  empty `WEB_PASSWORD` switches authentication off and logs a warning.
+- **API**: `GET /api/config` returns the editable subset as form encoded
+  `key=value` pairs, `POST /api/config` applies and stores it, and
+  `POST /api/shutdown` closes the page. `URLSearchParams` on the client side
+  reads and writes that format, so quotes, spaces and umlauts in passwords
+  survive without an escaping bug on either side.
+- **Radio**: the server holds the link with `net_wifi_hold()` for as long as
+  it listens, so the daily NTP sync cannot take the page down.
+- **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so
+  a forgotten session does not keep the radio up all night.
+
 ## Clock mode
 
 The clock shows HH:MM and the date, with a small per-minute jitter to reduce
 burn-in. Time comes from the compile time by default; WiFi/NTP can be enabled
-in `config.h`. The WiFi and SNTP stack is always linked (`wifi_connect()` and
-`sntp_sync()` in `clock.c`), so firmware built without credentials keeps the
-compile time and never touches the radio.
+in `config.h`. The radio and the SNTP stack live in `core/net.c` and are
+always linked, so firmware built without credentials keeps the compile time
+and never touches the radio.
 
 `__DATE__`/`__TIME__` are read as local time: the TZ string is installed
 first and `mktime()` resolves summer time, so only the build machine's own

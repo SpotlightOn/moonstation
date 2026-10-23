@@ -1,4 +1,5 @@
 #include "touch.h"
+#include <stdlib.h>
 #include "pins.h"
 #include "esp_err.h"
 #include "esp_log.h"
@@ -9,11 +10,16 @@
 #include "freertos/task.h"
 
 // Interrupt-driven touch: the CST816D INT line wakes a dedicated task that
-// reads the controller over I2C. Taps fire on release; a long press fires as
-// soon as the hold crosses TOUCH_TAP_MAX_MS, without waiting for release.
+// reads the controller over I2C. Taps and long presses fire on release, so a
+// deliberate hold can be interrupted: a finger kept at one spot for
+// TOUCH_SETUP_HOLD_MS is the setup gesture instead of a mode switch.
 #define TOUCH_DEBOUNCE_MS 20       // coalesce bursty INTs before reading
 #define TOUCH_TAP_MAX_MS 500       // hold length that counts as a long press
 #define TOUCH_HOLD_POLL_MS 100     // fallback poll rate while holding
+#define TOUCH_SETUP_HOLD_MS 5000   // still hold that opens the setup gesture
+#define TOUCH_SETUP_SETTLE_MS 400  // time a landing finger gets to calm down
+#define TOUCH_SETUP_MOVE_PX 40     // drift away from the settled position
+#define TOUCH_SETUP_SLIDE_PX 20    // motion within one poll, catches a swipe
 
 static const char *TAG = "touch";
 static i2c_master_bus_handle_t bus = NULL;
@@ -24,10 +30,20 @@ static touch_long_cb_t long_cb = NULL;
 static esp_timer_handle_t hold_timer = NULL;
 static TaskHandle_t touch_task_handle = NULL;
 
+static touch_setup_cb_t setup_cb = NULL;
+static esp_timer_handle_t setup_timer = NULL;
+static volatile bool fire_setup = false; // set by the setup timer
+
 static bool was_touched = false;
 static int64_t touch_start_ms = 0;
-static bool long_fired = false;     // long press already sent for this hold
-static volatile bool fire_long = false; // set by the hold timer
+static bool long_fired = false;     // long press used up for this hold
+static bool setup_armed = false;    // this hold may still open the setup
+static bool setup_fired = false;
+static int start_x = 0;         // settled position of this hold
+static int start_y = 0;
+static int prev_x = 0;          // previous report, catches a swipe
+static int prev_y = 0;
+static bool settled = false;    // the landing jitter is over
 static volatile bool slow_poll = false;
 
 static esp_err_t read_regs(uint8_t reg, uint8_t *buf, size_t len)
@@ -48,22 +64,37 @@ static void IRAM_ATTR touch_isr(void *arg)
 
 static void hold_timer_cb(void *arg)
 {
-    // The finger has been held for TOUCH_TAP_MAX_MS: fire the long press
-    // immediately; slow polling tracks the release as a fallback.
-    fire_long = true;
+    // TOUCH_TAP_MAX_MS passed: the long press waits for the release now, but
+    // polling has to start so a controller that stopped raising INTs is still
+    // noticed.
     slow_poll = true;
+}
+
+static void setup_timer_cb(void *arg)
+{
+    // The finger has been in place for TOUCH_SETUP_HOLD_MS.
+    fire_setup = true;
     if (touch_task_handle) {
         xTaskNotifyGive(touch_task_handle);
     }
 }
 
+// Hands the setup gesture over to whoever registered it. Kept in the touch
+// task, so no callback ever runs in the timer context.
+static void fire_setup_gesture(void)
+{
+    setup_fired = true;
+    setup_armed = false;
+    long_fired = true; // this hold is spoken for, no mode switch on release
+    if (setup_cb) setup_cb();
+}
+
 static void handle_touch(void)
 {
-    if (fire_long) {
-        fire_long = false;
-        if (was_touched && !long_fired) {
-            long_fired = true;
-            if (long_cb) long_cb();
+    if (fire_setup) {
+        fire_setup = false;
+        if (was_touched && setup_armed && !setup_fired) {
+            fire_setup_gesture();
         }
     }
 
@@ -73,27 +104,75 @@ static void handle_touch(void)
     if (buf[0] == 0xFF) buf[0] = 0x00;
     int num = buf[0] & 0x01;
 
+    // Finger position: the controller puts the high nibble of X and Y in
+    // registers 0x03 and 0x05, the low byte in the register after each.
+    int x = ((buf[1] & 0x0F) << 8) | buf[2];
+    int y = ((buf[3] & 0x0F) << 8) | buf[4];
+
     int64_t now = esp_timer_get_time() / 1000;
     if (num > 0 && !was_touched) {
         was_touched = true;
         long_fired = false;
+        setup_fired = false;
+        setup_armed = setup_cb != NULL;
+        start_x = x;
+        start_y = y;
+        prev_x = x;
+        prev_y = y;
+        settled = false;
         touch_start_ms = now;
+        ESP_LOGI(TAG, "touch at %d,%d", x, y);
         esp_timer_stop(hold_timer);
         esp_timer_start_once(hold_timer, TOUCH_TAP_MAX_MS * 1000);
+        if (setup_armed) {
+            esp_timer_stop(setup_timer);
+            esp_timer_start_once(setup_timer, TOUCH_SETUP_HOLD_MS * 1000);
+        }
+    } else if (num > 0 && was_touched) {
+        if (!settled && now - touch_start_ms >= TOUCH_SETUP_SETTLE_MS) {
+            // Measure the rest of the hold against the position the finger
+            // ended up at, not the one it landed on: the first reports of a
+            // fresh touch still jump around.
+            start_x = x;
+            start_y = y;
+            settled = true;
+        }
+        if (setup_armed && settled &&
+            (abs(x - start_x) > TOUCH_SETUP_MOVE_PX ||
+             abs(y - start_y) > TOUCH_SETUP_MOVE_PX ||
+             abs(x - prev_x) > TOUCH_SETUP_SLIDE_PX ||
+             abs(y - prev_y) > TOUCH_SETUP_SLIDE_PX)) {
+            setup_armed = false;
+            esp_timer_stop(setup_timer);
+            ESP_LOGI(TAG, "setup gesture cancelled, finger moved "
+                          "(dx %d/%d, dy %d/%d)",
+                     x - start_x, x - prev_x, y - start_y, y - prev_y);
+        }
+        prev_x = x;
+        prev_y = y;
     } else if (num == 0 && was_touched) {
         was_touched = false;
         slow_poll = false;
         esp_timer_stop(hold_timer);
+        esp_timer_stop(setup_timer);
         int64_t dur = now - touch_start_ms;
+        // Safety net for a setup hold whose timer callback lost the race
+        // against the release.
+        if (fire_setup || (setup_armed && dur >= TOUCH_SETUP_HOLD_MS)) {
+            fire_setup = false;
+            if (setup_armed && !setup_fired) fire_setup_gesture();
+        }
         if (!long_fired) {
             if (dur < TOUCH_TAP_MAX_MS && tap_cb) {
                 tap_cb();
             } else if (dur >= TOUCH_TAP_MAX_MS && long_cb) {
-                // Safety net in case the hold timer could not run.
                 long_cb();
             }
         }
         long_fired = false;
+        setup_armed = false;
+        setup_fired = false;
+        settled = false;
     }
 }
 
@@ -179,6 +258,11 @@ esp_err_t touch_init(touch_tap_cb_t cb)
         .name = "tp_hold",
     };
     ESP_ERROR_CHECK(esp_timer_create(&hold_args, &hold_timer));
+    esp_timer_create_args_t setup_args = {
+        .callback = setup_timer_cb,
+        .name = "tp_setup",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&setup_args, &setup_timer));
 
     ret = gpio_install_isr_service(0);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
@@ -198,6 +282,11 @@ esp_err_t touch_init(touch_tap_cb_t cb)
 void touch_set_long_press_cb(touch_long_cb_t cb)
 {
     long_cb = cb;
+}
+
+void touch_set_setup_cb(touch_setup_cb_t cb)
+{
+    setup_cb = cb;
 }
 
 bool touch_is_available(void)
