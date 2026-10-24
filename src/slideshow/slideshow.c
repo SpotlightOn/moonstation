@@ -12,7 +12,7 @@
 #include "driver/gpio.h"
 #include "pins.h"
 #include "esp_log.h"
-#include "jpeg_decoder.h"
+#include "esp_jpeg_dec.h"
 #include "esp_lcd_panel_ops.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -189,12 +189,39 @@ static void fill_color(uint16_t color)
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
+// Decoder handle, opened on the first slide and kept for the lifetime of the
+// firmware: reopening it per image costs heap churn and setup time. A failed
+// decode closes the handle, so the next slide starts from a clean state.
+static jpeg_dec_handle_t jpeg_dec = NULL;
+
+static bool jpeg_dec_ready(void)
+{
+    if (jpeg_dec) return true;
+    jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+    config.output_type = JPEG_PIXEL_FORMAT_RGB565_BE; // panel wants MSB first
+    if (jpeg_dec_open(&config, &jpeg_dec) != JPEG_ERR_OK) {
+        ESP_LOGE(TAG, "cannot open the JPEG decoder");
+        jpeg_dec = NULL;
+        return false;
+    }
+    return true;
+}
+
+static void jpeg_dec_drop(void)
+{
+    if (jpeg_dec) {
+        jpeg_dec_close(jpeg_dec);
+        jpeg_dec = NULL;
+    }
+}
+
 static esp_err_t show_slide(const char *path)
 {
     struct stat st;
     if (stat(path, &st) != 0) return ESP_FAIL;
     if (st.st_size <= 0 || st.st_size > MAX_SLIDE_BYTES) return ESP_FAIL;
 
+    int64_t t0 = esp_timer_get_time();
     uint8_t *buf = malloc(st.st_size);
     if (!buf) return ESP_ERR_NO_MEM;
     FILE *f = fopen(path, "rb");
@@ -202,25 +229,46 @@ static esp_err_t show_slide(const char *path)
     size_t rd = fread(buf, 1, st.st_size, f);
     fclose(f);
     if (rd != (size_t)st.st_size) { free(buf); return ESP_FAIL; }
+    int64_t t1 = esp_timer_get_time();
 
-    esp_jpeg_image_cfg_t cfg = {
-        .indata = buf,
-        .indata_size = (uint32_t)rd,
-        .outbuf = (uint8_t *)slide_fb,
-        .outbuf_size = 240 * 240 * sizeof(uint16_t),
-        .out_format = JPEG_IMAGE_FORMAT_RGB565,
-        .out_scale = JPEG_IMAGE_SCALE_0,
-        .flags = { .swap_color_bytes = 1 },
-    };
-    esp_jpeg_image_output_t out = {0};
-    esp_err_t ret = esp_jpeg_decode(&cfg, &out);
-    free(buf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "decode failed %s: %s", path, esp_err_to_name(ret));
-        return ret;
+    if (!jpeg_dec_ready()) { free(buf); return ESP_FAIL; }
+
+    jpeg_dec_io_t io = {0};
+    jpeg_dec_header_info_t info = {0};
+    io.inbuf = buf;
+    io.inbuf_len = (int)rd;
+    jpeg_error_t jerr = jpeg_dec_parse_header(jpeg_dec, &io, &info);
+    if (jerr != JPEG_ERR_OK) {
+        ESP_LOGE(TAG, "cannot parse %s: %d", path, (int)jerr);
+        free(buf);
+        jpeg_dec_drop();
+        return ESP_FAIL;
     }
+    if ((size_t)info.width * info.height * sizeof(uint16_t) >
+        240 * 240 * sizeof(uint16_t)) {
+        ESP_LOGE(TAG, "%s is %ux%u, larger than the panel", path,
+                 (unsigned)info.width, (unsigned)info.height);
+        free(buf);
+        return ESP_FAIL;
+    }
+    io.outbuf = (uint8_t *)slide_fb;
+    io.out_size = info.width * info.height * sizeof(uint16_t);
+    jerr = jpeg_dec_process(jpeg_dec, &io);
+    free(buf);
+    if (jerr != JPEG_ERR_OK) {
+        ESP_LOGE(TAG, "decode failed %s: %d", path, (int)jerr);
+        jpeg_dec_drop();
+        return ESP_FAIL;
+    }
+    int64_t t2 = esp_timer_get_time();
     ui_status_draw(slide_fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, out.width, out.height, slide_fb);
+    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width, info.height, slide_fb);
+    int64_t t3 = esp_timer_get_time();
+    ESP_LOGI(TAG, "slide %s: %u B, read %lld ms, decode %lld ms, blit %lld ms, heap %u",
+             path, (unsigned)rd,
+             (long long)((t1 - t0) / 1000), (long long)((t2 - t1) / 1000),
+             (long long)((t3 - t2) / 1000),
+             (unsigned)esp_get_free_heap_size());
     return ESP_OK;
 }
 
