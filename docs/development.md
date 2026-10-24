@@ -153,6 +153,18 @@ like this:
   `TIMEZONE_STD_OFFSET_HOURS` and `TIMEZONE_EU_DST`, applied as a POSIX TZ
   string in `apply_timezone()` before the compile time is interpreted.
 
+## Power management
+
+The build runs the CPU at 80 MHz with dynamic frequency scaling enabled
+(`CONFIG_PM_ENABLE`, tickless idle), so an idle chip drops to 40 MHz on its own.
+
+`SLIDE_PM_LOW_POWER` (default on, `features.h`) keeps the `CPU_FREQ_MAX` lock
+only around the image work: `show_slide()` and the SD card init/scan take it,
+everything else in the slide modes runs without it. The lock matters because the
+SD card path takes no power management lock of its own - the SDMMC driver would
+happily let a sleep mode cut a transfer in half. With the switch off the slide
+modes hold the lock for their whole lifetime, which is what older versions did.
+
 ## Display and backlight
 
 The panel is a GC9A01 driven over SPI. The backlight on GPIO 42 is active low

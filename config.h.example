@@ -22,6 +22,12 @@
 // Directory on the SD card holding the 240x240 baseline JPEGs.
 #define SLIDE_DIR "/slides"
 
+// Low power while an image mode runs (1 = on, 0 = off). On, the CPU speed lock
+// is only held while an image is read and decoded, so the power manager can
+// drop the clock and let the chip sleep between two images. Off, the lock is
+// held for the whole mode, which keeps the CPU at full speed and awake.
+#define SLIDE_PM_LOW_POWER 1
+
 // ================================ Display ==================================
 
 // SPI clock of the GC9A01 panel in Hz. Board level, deliberately not part of

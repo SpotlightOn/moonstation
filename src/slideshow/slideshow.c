@@ -189,6 +189,34 @@ static void fill_color(uint16_t color)
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
+// CPU at full speed: taken around the work that needs it (SD access, decode,
+// DMA setup) and released again, so the power manager can drop the clock and
+// enter automatic light sleep while nothing happens.
+static bool cpu_max_held = false;
+
+static void cpu_max_hold(bool hold)
+{
+    if (!cpu_max_lock || hold == cpu_max_held) return;
+    if (hold) {
+        esp_pm_lock_acquire(cpu_max_lock);
+    } else {
+        esp_pm_lock_release(cpu_max_lock);
+    }
+    cpu_max_held = hold;
+}
+
+// Guard for the image work. With SLIDE_PM_LOW_POWER the lock is taken per
+// image and dropped in between; without it the slide modes hold it for their
+// whole lifetime and this does nothing.
+static void slide_work_hold(bool hold)
+{
+#if SLIDE_PM_LOW_POWER
+    cpu_max_hold(hold);
+#else
+    (void)hold;
+#endif
+}
+
 // Decoder handle, opened on the first slide of a slide mode and released when
 // the clock mode takes over. Reopening per image would cost heap churn and
 // setup time, so it stays open across images. A failed decode closes it, so
@@ -248,7 +276,7 @@ static void release_slide_resources(void)
              (unsigned)esp_get_free_heap_size());
 }
 
-static esp_err_t show_slide(const char *path)
+static esp_err_t show_slide_now(const char *path)
 {
     struct stat st;
     if (stat(path, &st) != 0) return ESP_FAIL;
@@ -302,12 +330,28 @@ static esp_err_t show_slide(const char *path)
     return ESP_OK;
 }
 
+// The image work needs the CPU at full speed and must not be interrupted by a
+// light sleep: the SD card read below blocks for milliseconds and the SDMMC
+// driver takes no power management lock.
+static esp_err_t show_slide(const char *path)
+{
+    slide_work_hold(true);
+    esp_err_t r = show_slide_now(path);
+    slide_work_hold(false);
+    return r;
+}
+
 // Mount and scan the card if needed; shows the error screen (red = no card,
-// yellow = no slides) and returns false when slides are not usable.
+// yellow = no slides) and returns false when slides are not usable. The same
+// power management rule applies as in show_slide() around the card access; the
+// waits for the next retry stay outside it so the chip can sleep.
 static bool ensure_slides(void)
 {
     if (!sdcard_is_mounted()) {
-        if (sdcard_init() != ESP_OK) {
+        slide_work_hold(true);
+        esp_err_t r = sdcard_init();
+        slide_work_hold(false);
+        if (r != ESP_OK) {
             ESP_LOGW(TAG, "no SD card");
             fill_color(0xF800); // red
             vTaskDelay(pdMS_TO_TICKS(2000));
@@ -315,7 +359,9 @@ static bool ensure_slides(void)
         }
     }
     if (slide_count == 0) {
+        slide_work_hold(true);
         scan_slides();
+        slide_work_hold(false);
         if (slide_count == 0) {
             ESP_LOGW(TAG, "no slides");
             fill_color(0xFFE0); // yellow
@@ -441,16 +487,20 @@ static void on_setup_gesture(void)
     web_toggle();
 }
 
-// Keep maximum CPU frequency only while slideshow work runs; the clock mode
-// may throttle down and light-sleep.
+// Hand the CPU clock back to the power manager while an image mode idles. The
+// clock mode never needs the lock; with SLIDE_PM_LOW_POWER the slide modes do
+// not need it outside the image work either.
 static void apply_power_for_mode(bool clock_active)
 {
-    if (!cpu_max_lock) return;
-    if (clock_active) {
-        esp_pm_lock_release(cpu_max_lock);
-    } else {
-        esp_pm_lock_acquire(cpu_max_lock);
-    }
+#if SLIDE_PM_LOW_POWER
+    (void)clock_active;
+    // The SD card path takes no power management lock of its own, so a light
+    // sleep in the middle of a transfer would corrupt it: image work holds the
+    // lock itself, see slide_work_hold().
+    cpu_max_hold(false);
+#else
+    cpu_max_hold(!clock_active);
+#endif
 }
 
 //
@@ -638,6 +688,7 @@ void slideshow_run(void)
 
     // Power management: keep max CPU frequency while slideshow work is active.
     esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "slideshow", &cpu_max_lock);
+
 
     // Timer used to wake the loop at the next slide, minute, backlight step
     // or touch event.

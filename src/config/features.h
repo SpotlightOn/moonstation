@@ -25,4 +25,12 @@
 #define CLOCK_DEEP_SLEEP 0
 #endif
 
+// Low power in the image modes (1 = on, 0 = off). One hands the CPU speed lock
+// back between two images instead of holding it for the whole mode, so the
+// power manager can drop the clock and let the chip light-sleep while a slide
+// is on screen. Zero restores the old behaviour of a permanently acquired lock.
+#ifndef SLIDE_PM_LOW_POWER
+#define SLIDE_PM_LOW_POWER 1
+#endif
+
 #endif // FEATURES_H

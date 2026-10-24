@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hold the CPU speed lock only around the image work (`SLIDE_PM_LOW_POWER`), so
+  the power manager can drop the clock between two images.
 - Decode slides with `espressif/esp_new_jpeg` (SIMD accelerated on the ESP32-S3)
   instead of the TJpgDec ROM codec. Measured on the board at 80 MHz over 30
   slides: decode time 189 ms -> 36 ms on average (5.3x), worst case 231 ms ->
