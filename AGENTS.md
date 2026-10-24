@@ -75,8 +75,10 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
   CPU at 80 MHz.
 - PSRAM is not enabled in the build: `CONFIG_SPIRAM` is off, the firmware runs
   on the internal RAM.
-- Console: UART0 on GPIO 43/44 through the onboard CH343P USB-UART bridge,
-  which is the `/dev/ttyACM0` in the commands below.
+- Console: logs go to UART0 on GPIO 43/44 and to the chip's native USB
+  Serial/JTAG, which is the `/dev/ttyACM0` on the dev machine. That USB
+  peripheral cannot survive light sleep, so keep `PM_LIGHT_SLEEP` off while
+  working over it.
 - The QMI8658 six-axis IMU on the board is not used.
 - Panel: GC9A01, 240x240, inversion on, pins MOSI 2, SCLK 4, CS 5, DC 47,
   RST 38, backlight 42 (active low, PWM). SPI at 40 MHz.

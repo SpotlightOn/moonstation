@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_jpeg_dec.h"
 #include "esp_lcd_panel_ops.h"
+#include "driver/usb_serial_jtag.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <dirent.h>
@@ -37,6 +38,8 @@ static uint16_t *slide_fb = NULL;
 static volatile bool advance_req = false;
 static int64_t last_interaction = 0;
 static esp_pm_lock_handle_t cpu_max_lock = NULL;
+static esp_pm_lock_handle_t usb_pm_lock = NULL;
+static bool usb_pm_hold = false;
 static TaskHandle_t main_task = NULL;
 static esp_timer_handle_t wake_timer = NULL;
 static int last_brightness = -1;
@@ -189,10 +192,46 @@ static void fill_color(uint16_t color)
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
-// Decoder handle, opened on the first slide and kept for the lifetime of the
-// firmware: reopening it per image costs heap churn and setup time. A failed
-// decode closes the handle, so the next slide starts from a clean state.
+// CPU at full speed: taken around the work that needs it (SD access, decode,
+// DMA setup) and released again, so the power manager can drop the clock and
+// enter automatic light sleep while nothing happens.
+static bool cpu_max_held = false;
+
+static void cpu_max_hold(bool hold)
+{
+    if (!cpu_max_lock || hold == cpu_max_held) return;
+    if (hold) {
+        esp_pm_lock_acquire(cpu_max_lock);
+    } else {
+        esp_pm_lock_release(cpu_max_lock);
+    }
+    cpu_max_held = hold;
+}
+
+// Guard for the image work. With SLIDE_PM_LOW_POWER the lock is taken per
+// image and dropped in between; without it the slide modes hold it for their
+// whole lifetime and this does nothing.
+static void slide_work_hold(bool hold)
+{
+#if SLIDE_PM_LOW_POWER
+    cpu_max_hold(hold);
+#else
+    (void)hold;
+#endif
+}
+
+// Decoder handle, opened on the first slide of a slide mode and released when
+// the clock mode takes over. Reopening per image would cost heap churn and
+// setup time, so it stays open across images. A failed decode closes it, so
+// the next image starts from a clean state.
 static jpeg_dec_handle_t jpeg_dec = NULL;
+
+// One input buffer for all images, grown when a bigger file shows up. It is
+// reused instead of allocating per image, so thousands of image changes cannot
+// fragment the heap, and it is released together with the decoder whenever a
+// slide mode ends.
+static uint8_t *jpeg_buf = NULL;
+static size_t jpeg_buf_cap = 0;
 
 static bool jpeg_dec_ready(void)
 {
@@ -215,23 +254,48 @@ static void jpeg_dec_drop(void)
     }
 }
 
-static esp_err_t show_slide(const char *path)
+// Grows the shared input buffer to at least size bytes and returns it.
+static uint8_t *jpeg_buf_get(size_t size)
+{
+    if (size > jpeg_buf_cap) {
+        uint8_t *p = realloc(jpeg_buf, size);
+        if (!p) return NULL;
+        jpeg_buf = p;
+        jpeg_buf_cap = size;
+    }
+    return jpeg_buf;
+}
+
+// Both slide modes call this on exit: the decoder and the input buffer are
+// only needed while images are on screen, so the clock mode gets the memory
+// back (roughly 14 kB with typical file sizes).
+static void release_slide_resources(void)
+{
+    jpeg_dec_drop();
+    free(jpeg_buf);
+    jpeg_buf = NULL;
+    jpeg_buf_cap = 0;
+    ESP_LOGI(TAG, "released decoder and input buffer, heap %u",
+             (unsigned)esp_get_free_heap_size());
+}
+
+static esp_err_t show_slide_now(const char *path)
 {
     struct stat st;
     if (stat(path, &st) != 0) return ESP_FAIL;
     if (st.st_size <= 0 || st.st_size > MAX_SLIDE_BYTES) return ESP_FAIL;
 
     int64_t t0 = esp_timer_get_time();
-    uint8_t *buf = malloc(st.st_size);
+    uint8_t *buf = jpeg_buf_get(st.st_size);
     if (!buf) return ESP_ERR_NO_MEM;
     FILE *f = fopen(path, "rb");
-    if (!f) { free(buf); return ESP_FAIL; }
+    if (!f) return ESP_FAIL;
     size_t rd = fread(buf, 1, st.st_size, f);
     fclose(f);
-    if (rd != (size_t)st.st_size) { free(buf); return ESP_FAIL; }
+    if (rd != (size_t)st.st_size) return ESP_FAIL;
     int64_t t1 = esp_timer_get_time();
 
-    if (!jpeg_dec_ready()) { free(buf); return ESP_FAIL; }
+    if (!jpeg_dec_ready()) return ESP_FAIL;
 
     jpeg_dec_io_t io = {0};
     jpeg_dec_header_info_t info = {0};
@@ -240,7 +304,6 @@ static esp_err_t show_slide(const char *path)
     jpeg_error_t jerr = jpeg_dec_parse_header(jpeg_dec, &io, &info);
     if (jerr != JPEG_ERR_OK) {
         ESP_LOGE(TAG, "cannot parse %s: %d", path, (int)jerr);
-        free(buf);
         jpeg_dec_drop();
         return ESP_FAIL;
     }
@@ -248,13 +311,11 @@ static esp_err_t show_slide(const char *path)
         240 * 240 * sizeof(uint16_t)) {
         ESP_LOGE(TAG, "%s is %ux%u, larger than the panel", path,
                  (unsigned)info.width, (unsigned)info.height);
-        free(buf);
         return ESP_FAIL;
     }
     io.outbuf = (uint8_t *)slide_fb;
     io.out_size = info.width * info.height * sizeof(uint16_t);
     jerr = jpeg_dec_process(jpeg_dec, &io);
-    free(buf);
     if (jerr != JPEG_ERR_OK) {
         ESP_LOGE(TAG, "decode failed %s: %d", path, (int)jerr);
         jpeg_dec_drop();
@@ -272,12 +333,28 @@ static esp_err_t show_slide(const char *path)
     return ESP_OK;
 }
 
+// The image work needs the CPU at full speed and must not be interrupted by a
+// light sleep: the SD card read below blocks for milliseconds and the SDMMC
+// driver takes no power management lock.
+static esp_err_t show_slide(const char *path)
+{
+    slide_work_hold(true);
+    esp_err_t r = show_slide_now(path);
+    slide_work_hold(false);
+    return r;
+}
+
 // Mount and scan the card if needed; shows the error screen (red = no card,
-// yellow = no slides) and returns false when slides are not usable.
+// yellow = no slides) and returns false when slides are not usable. The same
+// power management rule applies as in show_slide() around the card access; the
+// waits for the next retry stay outside it so the chip can sleep.
 static bool ensure_slides(void)
 {
     if (!sdcard_is_mounted()) {
-        if (sdcard_init() != ESP_OK) {
+        slide_work_hold(true);
+        esp_err_t r = sdcard_init();
+        slide_work_hold(false);
+        if (r != ESP_OK) {
             ESP_LOGW(TAG, "no SD card");
             fill_color(0xF800); // red
             vTaskDelay(pdMS_TO_TICKS(2000));
@@ -285,7 +362,9 @@ static bool ensure_slides(void)
         }
     }
     if (slide_count == 0) {
+        slide_work_hold(true);
         scan_slides();
+        slide_work_hold(false);
         if (slide_count == 0) {
             ESP_LOGW(TAG, "no slides");
             fill_color(0xFFE0); // yellow
@@ -411,16 +490,20 @@ static void on_setup_gesture(void)
     web_toggle();
 }
 
-// Keep maximum CPU frequency only while slideshow work runs; the clock mode
-// may throttle down and light-sleep.
+// Hand the CPU clock back to the power manager while an image mode idles. The
+// clock mode never needs the lock; with SLIDE_PM_LOW_POWER the slide modes do
+// not need it outside the image work either.
 static void apply_power_for_mode(bool clock_active)
 {
-    if (!cpu_max_lock) return;
-    if (clock_active) {
-        esp_pm_lock_release(cpu_max_lock);
-    } else {
-        esp_pm_lock_acquire(cpu_max_lock);
-    }
+#if SLIDE_PM_LOW_POWER
+    (void)clock_active;
+    // The SD card path takes no power management lock of its own, so a light
+    // sleep in the middle of a transfer would corrupt it: image work holds the
+    // lock itself, see slide_work_hold().
+    cpu_max_hold(false);
+#else
+    cpu_max_hold(!clock_active);
+#endif
 }
 
 //
@@ -568,7 +651,7 @@ static const ui_mode_t slideshow_mode = {
     .next = &combined_mode,
     .enter_tone_hz = 440,
     .enter = slideshow_enter,
-    .exit = NULL,
+    .exit = release_slide_resources,
     .on_tap = slideshow_on_tap,
     .on_long_press = mode_on_long_press,
     .on_wake = slideshow_on_wake,
@@ -580,7 +663,7 @@ static const ui_mode_t combined_mode = {
     .next = &clock_mode,
     .enter_tone_hz = 988,
     .enter = combined_enter,
-    .exit = NULL,
+    .exit = release_slide_resources,
     .on_tap = slideshow_on_tap,
     .on_long_press = mode_on_long_press,
     .on_wake = combined_on_wake,
@@ -588,6 +671,29 @@ static const ui_mode_t combined_mode = {
 };
 
 //
+// Hold automatic light sleep off while a USB host is connected: the ESP32-S3
+// USB Serial/JTAG peripheral cannot survive light sleep, the device would drop
+// off the bus and flashing or monitoring would break mid-session.
+static void usb_pm_update(void)
+{
+#if PM_LIGHT_SLEEP
+    if (!usb_pm_lock) return;
+    bool connected = usb_serial_jtag_is_connected();
+    if (connected == usb_pm_hold) return;
+    if (connected) {
+        esp_pm_lock_acquire(usb_pm_lock);
+    } else {
+        esp_pm_lock_release(usb_pm_lock);
+    }
+    usb_pm_hold = connected;
+    ESP_LOGI(TAG, "USB host %s, light sleep %s",
+             connected ? "connected" : "gone",
+             connected ? "blocked" : "allowed");
+#else
+    (void)usb_pm_hold;
+#endif
+}
+
 // Mode manager main loop.
 //
 
@@ -608,6 +714,29 @@ void slideshow_run(void)
 
     // Power management: keep max CPU frequency while slideshow work is active.
     esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "slideshow", &cpu_max_lock);
+
+#if PM_LIGHT_SLEEP
+    // Automatic light sleep: the power manager sleeps the chip whenever no
+    // lock is held, which is the case between two images and between two
+    // clock minutes. Both frequencies stay available for dynamic scaling.
+    esp_pm_config_t pm_cfg = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ / 2,
+        .light_sleep_enable = true,
+    };
+    ESP_ERROR_CHECK(esp_pm_configure(&pm_cfg));
+    // The build disables all GPIO pads during automatic sleep. Two pads have to
+    // stay alive: the touch interrupt is the wake-up source, and the panel's
+    // chip select must stay high so a floating clock line cannot shift noise
+    // into the display. The backlight pad is handled by the LEDC driver.
+    gpio_sleep_sel_dis((gpio_num_t)PIN_TP_INT);
+    gpio_sleep_sel_dis((gpio_num_t)PIN_LCD_CS);
+    // The USB Serial/JTAG peripheral dies in light sleep and takes the port
+    // with it. Keep a lock while a host is connected; unplugged the chip may
+    // sleep as deep as it likes.
+    esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "usb", &usb_pm_lock);
+    usb_pm_update();
+#endif
 
     // Timer used to wake the loop at the next slide, minute, backlight step
     // or touch event.
@@ -674,6 +803,7 @@ void slideshow_run(void)
         if (wake_us > 60000000) wake_us = 60000000; // cap the safety timeout
 
         esp_timer_start_once(wake_timer, wake_us);
+        usb_pm_update();
         // Woken by the timer or by touch; timeout is a safety net.
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wake_us / 1000 + 2000));
         esp_timer_stop(wake_timer);
