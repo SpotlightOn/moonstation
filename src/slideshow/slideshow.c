@@ -14,6 +14,7 @@
 #include "esp_log.h"
 #include "esp_jpeg_dec.h"
 #include "esp_lcd_panel_ops.h"
+#include "driver/usb_serial_jtag.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <dirent.h>
@@ -37,6 +38,8 @@ static uint16_t *slide_fb = NULL;
 static volatile bool advance_req = false;
 static int64_t last_interaction = 0;
 static esp_pm_lock_handle_t cpu_max_lock = NULL;
+static esp_pm_lock_handle_t usb_pm_lock = NULL;
+static bool usb_pm_hold = false;
 static TaskHandle_t main_task = NULL;
 static esp_timer_handle_t wake_timer = NULL;
 static int last_brightness = -1;
@@ -668,6 +671,29 @@ static const ui_mode_t combined_mode = {
 };
 
 //
+// Hold automatic light sleep off while a USB host is connected: the ESP32-S3
+// USB Serial/JTAG peripheral cannot survive light sleep, the device would drop
+// off the bus and flashing or monitoring would break mid-session.
+static void usb_pm_update(void)
+{
+#if PM_LIGHT_SLEEP
+    if (!usb_pm_lock) return;
+    bool connected = usb_serial_jtag_is_connected();
+    if (connected == usb_pm_hold) return;
+    if (connected) {
+        esp_pm_lock_acquire(usb_pm_lock);
+    } else {
+        esp_pm_lock_release(usb_pm_lock);
+    }
+    usb_pm_hold = connected;
+    ESP_LOGI(TAG, "USB host %s, light sleep %s",
+             connected ? "connected" : "gone",
+             connected ? "blocked" : "allowed");
+#else
+    (void)usb_pm_hold;
+#endif
+}
+
 // Mode manager main loop.
 //
 
@@ -689,6 +715,28 @@ void slideshow_run(void)
     // Power management: keep max CPU frequency while slideshow work is active.
     esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "slideshow", &cpu_max_lock);
 
+#if PM_LIGHT_SLEEP
+    // Automatic light sleep: the power manager sleeps the chip whenever no
+    // lock is held, which is the case between two images and between two
+    // clock minutes. Both frequencies stay available for dynamic scaling.
+    esp_pm_config_t pm_cfg = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ / 2,
+        .light_sleep_enable = true,
+    };
+    ESP_ERROR_CHECK(esp_pm_configure(&pm_cfg));
+    // The build disables all GPIO pads during automatic sleep. Two pads have to
+    // stay alive: the touch interrupt is the wake-up source, and the panel's
+    // chip select must stay high so a floating clock line cannot shift noise
+    // into the display. The backlight pad is handled by the LEDC driver.
+    gpio_sleep_sel_dis((gpio_num_t)PIN_TP_INT);
+    gpio_sleep_sel_dis((gpio_num_t)PIN_LCD_CS);
+    // The USB Serial/JTAG peripheral dies in light sleep and takes the port
+    // with it. Keep a lock while a host is connected; unplugged the chip may
+    // sleep as deep as it likes.
+    esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "usb", &usb_pm_lock);
+    usb_pm_update();
+#endif
 
     // Timer used to wake the loop at the next slide, minute, backlight step
     // or touch event.
@@ -755,6 +803,7 @@ void slideshow_run(void)
         if (wake_us > 60000000) wake_us = 60000000; // cap the safety timeout
 
         esp_timer_start_once(wake_timer, wake_us);
+        usb_pm_update();
         // Woken by the timer or by touch; timeout is a safety net.
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wake_us / 1000 + 2000));
         esp_timer_stop(wake_timer);

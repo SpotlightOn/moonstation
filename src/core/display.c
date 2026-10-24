@@ -94,12 +94,18 @@ uint16_t *display_get_framebuffer(void)
 #define LEDC_MODE LEDC_LOW_SPEED_MODE
 #define LEDC_CHANNEL LEDC_CHANNEL_0
 
+// Backlight PWM: 5 kHz at 11 bit duty. 13 bit would need a slower PWM clock
+// than RC_FAST can provide, and 2048 steps are far below what the eye can see.
+#define BL_FREQ_HZ 5000
+#define BL_DUTY_BITS 11
+#define BL_DUTY_RES LEDC_TIMER_11_BIT
+
 void display_backlight_set_brightness(int percent)
 {
     if (percent < 0) percent = 0;
     if (percent > 100) percent = 100;
     // Active low: 100% brightness -> 0% duty, 0% brightness -> 100% duty.
-    int duty = (100 - percent) * ((1 << 13) - 1) / 100;
+    int duty = (100 - percent) * ((1 << BL_DUTY_BITS) - 1) / 100;
     ledc_set_duty(LEDC_MODE, LEDC_CHANNEL, duty);
     ledc_update_duty(LEDC_MODE, LEDC_CHANNEL);
 }
@@ -108,10 +114,14 @@ void display_backlight_init(void)
 {
     ledc_timer_config_t tcfg = {
         .speed_mode = LEDC_MODE,
-        .duty_resolution = LEDC_TIMER_13_BIT,
+        .duty_resolution = BL_DUTY_RES,
         .timer_num = LEDC_TIMER,
-        .freq_hz = 5000,
-        .clk_cfg = LEDC_AUTO_CLK,
+        .freq_hz = BL_FREQ_HZ,
+        // RC_FAST keeps running while the chip light-sleeps; the APB clock is
+        // gated and the backlight would go dark or stick at its last level.
+        // RC_FAST runs at about 17.5 MHz, which caps frequency x resolution,
+        // hence the 11 bit duty below.
+        .clk_cfg = LEDC_USE_RC_FAST_CLK,
     };
     ledc_timer_config(&tcfg);
     ledc_channel_config_t ccfg = {
@@ -119,8 +129,12 @@ void display_backlight_init(void)
         .speed_mode = LEDC_MODE,
         .channel = LEDC_CHANNEL,
         .timer_sel = LEDC_TIMER,
-        .duty = (1 << 13) - 1,
+        .duty = (1 << BL_DUTY_BITS) - 1,
         .hpoint = 0,
+        // Keep the PWM going in light sleep, otherwise the backlight would
+        // freeze at whatever level it had when the chip went to sleep. The
+        // driver also keeps the output pad alive for this.
+        .sleep_mode = LEDC_SLEEP_MODE_KEEP_ALIVE,
     };
     ledc_channel_config(&ccfg); // 100% duty on an active low pad: off
 }

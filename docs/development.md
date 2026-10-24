@@ -157,20 +157,40 @@ like this:
 
 The build runs the CPU at 80 MHz with dynamic frequency scaling enabled
 (`CONFIG_PM_ENABLE`, tickless idle), so an idle chip drops to 40 MHz on its own.
+Two pieces of the firmware talk to the power manager:
 
-`SLIDE_PM_LOW_POWER` (default on, `features.h`) keeps the `CPU_FREQ_MAX` lock
-only around the image work: `show_slide()` and the SD card init/scan take it,
-everything else in the slide modes runs without it. The lock matters because the
-SD card path takes no power management lock of its own - the SDMMC driver would
-happily let a sleep mode cut a transfer in half. With the switch off the slide
-modes hold the lock for their whole lifetime, which is what older versions did.
+- **`SLIDE_PM_LOW_POWER`** (default on, `features.h`) keeps the `CPU_FREQ_MAX`
+  lock only around the image work: `show_slide()` and the SD card init/scan take
+  it, everything else in the slide modes runs without it. The lock is what makes
+  the difference here, because the SD card path takes no power management lock
+  of its own - the SDMMC driver would happily let a light sleep cut a transfer
+  in half. With the switch off the slide modes hold the lock for their whole
+  lifetime, which is what older versions did.
+- **`PM_LIGHT_SLEEP`** (default off, `features.h`) additionally enables
+  automatic light sleep, so the chip sleeps whenever no lock is held: between
+  two images and between two clock minutes. The backlight PWM runs from
+  `LEDC_USE_RC_FAST_CLK` with `LEDC_SLEEP_MODE_KEEP_ALIVE` and 11 bit duty, which
+  is the only combination that survives light sleep on this chip (RC_FAST caps
+  frequency x resolution, 5 kHz at 13 bit is impossible). The touch interrupt pad
+  and the panel chip select are excluded from the GPIO power down so a touch
+  still wakes the chip and the panel does not latch noise.
+
+Light sleep is off by default for a reason: this board is flashed and monitored
+over the ESP32-S3 **USB Serial/JTAG** peripheral, which dies in light sleep and
+takes the port with it (the kernel then logs `device not accepting address,
+error -71` in a loop). The firmware keeps an `ESP_PM_NO_LIGHT_SLEEP` lock while
+`usb_serial_jtag_is_connected()` reports a host, so a plugged-in board stays
+awake, but that path is not proven on hardware. Enable the switch for a board
+that runs unplugged.
 
 ## Display and backlight
 
 The panel is a GC9A01 driven over SPI. The backlight on GPIO 42 is active low
 and PWM controlled (`display_backlight_set_brightness`). `display_backlight_init`
 configures the LEDC timer/channel and leaves the pad dark; `display_backlight_on`
-adds full brightness; off sets 0%.
+adds full brightness; off sets 0%. The PWM runs at 5 kHz with 11 bit duty from
+`RC_FAST`; the resolution is a consequence of that clock source (see the power
+management section) and plenty for a backlight.
 
 Colors in the code are plain RGB565; the byte swap for the panel happens
 exactly once per write path with `RGB565_SWAP()` from `display.h`: in

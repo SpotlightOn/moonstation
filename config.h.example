@@ -28,6 +28,13 @@
 // held for the whole mode, which keeps the CPU at full speed and awake.
 #define SLIDE_PM_LOW_POWER 1
 
+// Automatic light sleep (1 = on, 0 = off). On, the chip sleeps whenever no lock
+// is held, which needs less power but drops the native USB Serial/JTAG port:
+// flashing and monitoring only work again with the board awake. The firmware
+// blocks light sleep while a USB host is connected, but that path is untested;
+// leave this off unless the board runs unplugged.
+#define PM_LIGHT_SLEEP 0
+
 // ================================ Display ==================================
 
 // SPI clock of the GC9A01 panel in Hz. Board level, deliberately not part of
