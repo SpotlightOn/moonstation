@@ -189,10 +189,18 @@ static void fill_color(uint16_t color)
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
-// Decoder handle, opened on the first slide and kept for the lifetime of the
-// firmware: reopening it per image costs heap churn and setup time. A failed
-// decode closes the handle, so the next slide starts from a clean state.
+// Decoder handle, opened on the first slide of a slide mode and released when
+// the clock mode takes over. Reopening per image would cost heap churn and
+// setup time, so it stays open across images. A failed decode closes it, so
+// the next image starts from a clean state.
 static jpeg_dec_handle_t jpeg_dec = NULL;
+
+// One input buffer for all images, grown when a bigger file shows up. It is
+// reused instead of allocating per image, so thousands of image changes cannot
+// fragment the heap, and it is released together with the decoder whenever a
+// slide mode ends.
+static uint8_t *jpeg_buf = NULL;
+static size_t jpeg_buf_cap = 0;
 
 static bool jpeg_dec_ready(void)
 {
@@ -215,6 +223,31 @@ static void jpeg_dec_drop(void)
     }
 }
 
+// Grows the shared input buffer to at least size bytes and returns it.
+static uint8_t *jpeg_buf_get(size_t size)
+{
+    if (size > jpeg_buf_cap) {
+        uint8_t *p = realloc(jpeg_buf, size);
+        if (!p) return NULL;
+        jpeg_buf = p;
+        jpeg_buf_cap = size;
+    }
+    return jpeg_buf;
+}
+
+// Both slide modes call this on exit: the decoder and the input buffer are
+// only needed while images are on screen, so the clock mode gets the memory
+// back (roughly 14 kB with typical file sizes).
+static void release_slide_resources(void)
+{
+    jpeg_dec_drop();
+    free(jpeg_buf);
+    jpeg_buf = NULL;
+    jpeg_buf_cap = 0;
+    ESP_LOGI(TAG, "released decoder and input buffer, heap %u",
+             (unsigned)esp_get_free_heap_size());
+}
+
 static esp_err_t show_slide(const char *path)
 {
     struct stat st;
@@ -222,16 +255,16 @@ static esp_err_t show_slide(const char *path)
     if (st.st_size <= 0 || st.st_size > MAX_SLIDE_BYTES) return ESP_FAIL;
 
     int64_t t0 = esp_timer_get_time();
-    uint8_t *buf = malloc(st.st_size);
+    uint8_t *buf = jpeg_buf_get(st.st_size);
     if (!buf) return ESP_ERR_NO_MEM;
     FILE *f = fopen(path, "rb");
-    if (!f) { free(buf); return ESP_FAIL; }
+    if (!f) return ESP_FAIL;
     size_t rd = fread(buf, 1, st.st_size, f);
     fclose(f);
-    if (rd != (size_t)st.st_size) { free(buf); return ESP_FAIL; }
+    if (rd != (size_t)st.st_size) return ESP_FAIL;
     int64_t t1 = esp_timer_get_time();
 
-    if (!jpeg_dec_ready()) { free(buf); return ESP_FAIL; }
+    if (!jpeg_dec_ready()) return ESP_FAIL;
 
     jpeg_dec_io_t io = {0};
     jpeg_dec_header_info_t info = {0};
@@ -240,7 +273,6 @@ static esp_err_t show_slide(const char *path)
     jpeg_error_t jerr = jpeg_dec_parse_header(jpeg_dec, &io, &info);
     if (jerr != JPEG_ERR_OK) {
         ESP_LOGE(TAG, "cannot parse %s: %d", path, (int)jerr);
-        free(buf);
         jpeg_dec_drop();
         return ESP_FAIL;
     }
@@ -248,13 +280,11 @@ static esp_err_t show_slide(const char *path)
         240 * 240 * sizeof(uint16_t)) {
         ESP_LOGE(TAG, "%s is %ux%u, larger than the panel", path,
                  (unsigned)info.width, (unsigned)info.height);
-        free(buf);
         return ESP_FAIL;
     }
     io.outbuf = (uint8_t *)slide_fb;
     io.out_size = info.width * info.height * sizeof(uint16_t);
     jerr = jpeg_dec_process(jpeg_dec, &io);
-    free(buf);
     if (jerr != JPEG_ERR_OK) {
         ESP_LOGE(TAG, "decode failed %s: %d", path, (int)jerr);
         jpeg_dec_drop();
@@ -568,7 +598,7 @@ static const ui_mode_t slideshow_mode = {
     .next = &combined_mode,
     .enter_tone_hz = 440,
     .enter = slideshow_enter,
-    .exit = NULL,
+    .exit = release_slide_resources,
     .on_tap = slideshow_on_tap,
     .on_long_press = mode_on_long_press,
     .on_wake = slideshow_on_wake,
@@ -580,7 +610,7 @@ static const ui_mode_t combined_mode = {
     .next = &clock_mode,
     .enter_tone_hz = 988,
     .enter = combined_enter,
-    .exit = NULL,
+    .exit = release_slide_resources,
     .on_tap = slideshow_on_tap,
     .on_long_press = mode_on_long_press,
     .on_wake = combined_on_wake,

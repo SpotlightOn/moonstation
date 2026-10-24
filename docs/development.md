@@ -183,6 +183,13 @@ on average (25-50 ms) instead of 189 ms (156-231 ms), which is 5.3x faster.
 The panel frame buffer in `display.c` must stay 16-byte aligned, that is what
 the decoder's SIMD path requires.
 
+The decoder handle and the JPEG input buffer are process-wide resources of the
+slide modes: the buffer is grown to the largest file and reused for every
+image, so thousands of image changes cannot fragment the heap, and both are
+released in the mode's `exit` hook when the clock mode takes over. The clock
+mode therefore runs with the memory of the old firmware (~114 kB free), the
+slide modes pay roughly 14 kB for the decoder.
+
 ## Touch
 
 CST816D on I2C port 1. Touch is interrupt driven: the controller's INT line
