@@ -80,7 +80,10 @@ esp_lcd_panel_handle_t display_get_panel(void)
     return panel_handle;
 }
 
-static uint16_t frame_buffer[240 * 240];
+// The ESP32-S3 decoder writes with SIMD instructions and requires a 16-byte
+// aligned output buffer, otherwise the first pixels of a row land in the wrong
+// column.
+static uint16_t frame_buffer[240 * 240] __attribute__((aligned(16)));
 
 uint16_t *display_get_framebuffer(void)
 {

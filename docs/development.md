@@ -162,20 +162,26 @@ adds full brightness; off sets 0%.
 
 Colors in the code are plain RGB565; the byte swap for the panel happens
 exactly once per write path with `RGB565_SWAP()` from `display.h`: in
-`fill_rect()`, `draw_text()` and `draw_time_text()` (clock.c), in `fill_color()`
-(slideshow.c) and in the JPEG decoder (`swap_color_bytes = 1`). The swap is
-needed because the panel expects the most significant byte first, esp_lcd
-reverses only command and parameter bytes (not color data), and the CPU stores
-a `uint16_t` least significant byte first. White and black are palindromic and
-therefore unaffected, which is why a missing swap only shows up as blue instead
-of red and dark red instead of green. Never put pixels into a frame buffer
-without going through one of those paths.
+`fill_rect()`, `draw_text()` and `draw_time_text()` (clock.c) and in
+`fill_color()` (slideshow.c). The JPEG decoder needs no swap: it is configured
+with `JPEG_PIXEL_FORMAT_RGB565_BE` and writes the most significant byte first
+on its own. The swap is needed because the panel expects the most significant
+byte first, esp_lcd reverses only command and parameter bytes (not color data),
+and the CPU stores a `uint16_t` least significant byte first. White and black
+are palindromic and therefore unaffected, which is why a missing swap only
+shows up as blue instead of red and dark red instead of green. Never put
+pixels into a frame buffer without going through one of those paths.
 
 ## SD card and images
 
 The card is mounted over SDMMC (1-bit). Images must be 240x240 baseline JPEGs.
 Use `scripts/build_slides.sh` to convert arbitrary images, then copy the output
-to the SD card.
+to the SD card. Decoding uses `espressif/esp_new_jpeg` (SIMD accelerated on the
+ESP32-S3), not the TJpgDec ROM codec of `espressif/esp_jpeg`: measured on the
+board with the CPU at 80 MHz over 30 slides, a 240x240 slide decodes in 36 ms
+on average (25-50 ms) instead of 189 ms (156-231 ms), which is 5.3x faster.
+The panel frame buffer in `display.c` must stay 16-byte aligned, that is what
+the decoder's SIMD path requires.
 
 ## Touch
 
