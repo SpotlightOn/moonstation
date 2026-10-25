@@ -99,6 +99,7 @@ the subset of values that makes sense at runtime.
 | --- | --- | --- |
 | `SLIDE_INTERVAL_MS` | `10000` | time per slide in milliseconds |
 | `SLIDE_DIR` | `/slides` | directory on the SD card |
+| `SLIDE_FADE_MS` | `0` | crossfade between two images in ms (0 = hard cut) |
 | `LCD_SPI_HZ` | `40000000` | panel SPI clock |
 | `AUDIO_VOLUME` | `60` | speaker volume (0-100) |
 | `BACKLIGHT_FULL_PCT` | `100` | brightness while active (percent) |
@@ -222,6 +223,27 @@ released in the mode's `exit` hook when the clock mode takes over. The clock
 mode therefore runs with the memory of the old firmware (~114 kB free), the
 slide modes pay roughly 14 kB for the decoder.
 
+### Crossfade
+
+`SLIDE_FADE_MS` (default 0, hard cut) blends from the image on screen to the
+next one. It needs a second frame: the new image is decoded into a 115.2 kB
+buffer in PSRAM while the panel keeps the old one, then the two are mixed in
+16-line bands into a small internal buffer and pushed to the panel, so the
+transition needs no third buffer. The build enables the board's 8 MB octal
+PSRAM for this (`CONFIG_SPIRAM`, `sdkconfig.defaults`); without it the setting
+is ignored and the image is drawn in one go.
+
+One step costs about 57 ms on the board at 80 MHz: the SPI transfer of a full
+frame (115 kB at 40 MHz) plus the blend. The step count therefore comes from
+`SLIDE_FADE_MS / 57 ms`, and a setting of 500 ms measures 459 ms over 9 steps.
+Decode time is unaffected (36-49 ms), the extra internal RAM is the 7.7 kB band
+buffer, and the second frame is 115.2 kB of PSRAM. A fade writes ~1.8 MB to the
+panel, so it is off by default for battery operation.
+
+PSRAM is part of the default heap after boot, which is why `esp_get_free_heap_size()`
+reports ~8.3 MB in the logs. The internal-only figure is
+`heap_caps_get_free_size(MALLOC_CAP_INTERNAL)`.
+
 ## Touch
 
 CST816D on I2C port 1. Touch is interrupt driven: the controller's INT line
@@ -309,6 +331,10 @@ shows. Nothing else in the firmware knows it exists.
   ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client side
   reads and writes that format, so quotes, spaces and umlauts in passwords
   survive without an escaping bug on either side.
+- **Layout**: the form is grouped into `fieldset`s with legends (Network,
+  Image show, Backlight, Clock and time, Sound and battery, Setup access). The
+  script only walks `form.elements`, so the grouping cannot affect loading or
+  saving, and a new field only needs its markup plus an entry in `FIELDS`.
 - **Radio**: the server holds the link with `net_wifi_hold()` for as long as
   it listens, so the daily NTP sync cannot take the page down.
 - **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so

@@ -22,6 +22,12 @@
 // Directory on the SD card holding the 240x240 baseline JPEGs.
 #define SLIDE_DIR "/slides"
 
+// Crossfade between two images in milliseconds, 0 cuts hard. Needs a second
+// frame buffer, which lives in PSRAM (the board has 8 MB); a build without
+// PSRAM ignores the value. A transition costs about half a second of SPI
+// traffic, so it is off by default for battery operation.
+#define SLIDE_FADE_MS 0
+
 // Low power while an image mode runs (1 = on, 0 = off). On, the CPU speed lock
 // is only held while an image is read and decoded, so the power manager can
 // drop the clock and let the chip sleep between two images. Off, the lock is

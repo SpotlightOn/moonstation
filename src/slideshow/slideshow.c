@@ -6,6 +6,7 @@
 #include "webserver.h"
 #include "audio.h"
 #include "clock.h"
+#include "esp_heap_caps.h"
 #include "esp_pm.h"
 #include "esp_timer.h"
 #include "esp_sleep.h"
@@ -266,6 +267,76 @@ static uint8_t *jpeg_buf_get(size_t size)
     return jpeg_buf;
 }
 
+// Crossfade between two images: the new one is decoded into a PSRAM frame
+// while the previous one stays in the internal frame buffer, then both are
+// mixed band by band and pushed to the panel. Without PSRAM the setting is
+// ignored and the image is drawn in one go, as before.
+#define FADE_BAND_LINES 16
+#define FADE_STEP_US 57000 // measured: SPI plus blend for one step
+
+static uint16_t *fade_buf = NULL;    // PSRAM, one full frame
+static bool fade_warned = false;
+static uint16_t shown_w = 0;         // size of the image on the panel
+static uint16_t shown_h = 0;
+static uint16_t fade_band[240 * FADE_BAND_LINES] __attribute__((aligned(16)));
+
+// Mixes two panel-order RGB565 pixels: alpha 0 returns a, 256 returns b.
+static inline uint16_t blend565(uint16_t a, uint16_t b, unsigned alpha)
+{
+    a = RGB565_SWAP(a);
+    b = RGB565_SWAP(b);
+    unsigned inv = 256 - alpha;
+    unsigned r = (((a >> 11) & 0x1F) * inv + ((b >> 11) & 0x1F) * alpha) >> 8;
+    unsigned g = (((a >> 5) & 0x3F) * inv + ((b >> 5) & 0x3F) * alpha) >> 8;
+    unsigned bl = ((a & 0x1F) * inv + (b & 0x1F) * alpha) >> 8;
+    return RGB565_SWAP((uint16_t)((r << 11) | (g << 5) | bl));
+}
+
+// Allocates the second frame in PSRAM on first use. Returns NULL when the
+// build or the board has none, which turns the fade off for good.
+static uint16_t *fade_buf_get(void)
+{
+    if (fade_buf) return fade_buf;
+    fade_buf = heap_caps_aligned_alloc(64, 240 * 240 * sizeof(uint16_t),
+                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!fade_buf && !fade_warned) {
+        ESP_LOGW(TAG, "no PSRAM frame buffer, crossfade stays off");
+        fade_warned = true;
+    }
+    return fade_buf;
+}
+
+// Draws one alpha step of the transition, band by band.
+static void fade_step(const uint16_t *old_img, const uint16_t *new_img,
+                      int width, int height, unsigned alpha)
+{
+    for (int y = 0; y < height; y += FADE_BAND_LINES) {
+        int lines = height - y;
+        if (lines > FADE_BAND_LINES) lines = FADE_BAND_LINES;
+        const uint16_t *a = old_img + (size_t)y * width;
+        const uint16_t *b = new_img + (size_t)y * width;
+        for (int i = 0; i < lines * width; i++) {
+            fade_band[i] = blend565(a[i], b[i], alpha);
+        }
+        esp_lcd_panel_draw_bitmap(display_get_panel(), 0, y, width, y + lines,
+                                  fade_band);
+    }
+}
+
+// Runs the whole transition and returns its duration in milliseconds.
+static int64_t fade_transition(const uint16_t *old_img, const uint16_t *new_img,
+                               int width, int height)
+{
+    int steps = (int)((settings.slide_fade_ms * 1000) / FADE_STEP_US);
+    if (steps < 2) steps = 2;
+    if (steps > 40) steps = 40;
+    int64_t t0 = esp_timer_get_time();
+    for (int s = 1; s <= steps; s++) {
+        fade_step(old_img, new_img, width, height, (unsigned)(s * 256 / steps));
+    }
+    return (esp_timer_get_time() - t0) / 1000;
+}
+
 // Both slide modes call this on exit: the decoder and the input buffer are
 // only needed while images are on screen, so the clock mode gets the memory
 // back (roughly 14 kB with typical file sizes).
@@ -275,6 +346,10 @@ static void release_slide_resources(void)
     free(jpeg_buf);
     jpeg_buf = NULL;
     jpeg_buf_cap = 0;
+    heap_caps_free(fade_buf);
+    fade_buf = NULL;
+    shown_w = 0;
+    shown_h = 0;
     ESP_LOGI(TAG, "released decoder and input buffer, heap %u",
              (unsigned)esp_get_free_heap_size());
 }
@@ -313,7 +388,12 @@ static esp_err_t show_slide_now(const char *path)
                  (unsigned)info.width, (unsigned)info.height);
         return ESP_FAIL;
     }
-    io.outbuf = (uint8_t *)slide_fb;
+    // With a fade the new image lands in PSRAM, so the frame buffer keeps the
+    // image that is currently on the panel.
+    bool fade = settings.slide_fade_ms > 0 && shown_w > 0 && shown_h > 0 &&
+                fade_buf_get() != NULL;
+    uint16_t *dst = fade ? fade_buf : slide_fb;
+    io.outbuf = (uint8_t *)dst;
     io.out_size = info.width * info.height * sizeof(uint16_t);
     jerr = jpeg_dec_process(jpeg_dec, &io);
     if (jerr != JPEG_ERR_OK) {
@@ -322,13 +402,33 @@ static esp_err_t show_slide_now(const char *path)
         return ESP_FAIL;
     }
     int64_t t2 = esp_timer_get_time();
-    ui_status_draw(slide_fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width, info.height, slide_fb);
+    int64_t blit_ms = 0;
+    int64_t fade_ms = 0;
+    if (fade) {
+        ui_status_draw(dst);
+        int w = info.width < shown_w ? info.width : shown_w;
+        int h = info.height < shown_h ? info.height : shown_h;
+        fade_ms = fade_transition(slide_fb, dst, w, h);
+        // The last step ends on the new image: keep it in the frame buffer so
+        // the next transition starts from what the panel shows.
+        memcpy(slide_fb, dst, (size_t)info.width * info.height * sizeof(uint16_t));
+        if (info.width != shown_w || info.height != shown_h) {
+            // Sizes differ, the blend only covered the common area.
+            esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width,
+                                      info.height, slide_fb);
+        }
+    } else {
+        ui_status_draw(slide_fb);
+        esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width, info.height, slide_fb);
+    }
+    shown_w = info.width;
+    shown_h = info.height;
     int64_t t3 = esp_timer_get_time();
-    ESP_LOGI(TAG, "slide %s: %u B, read %lld ms, decode %lld ms, blit %lld ms, heap %u",
+    blit_ms = fade ? 0 : (t3 - t2) / 1000;
+    ESP_LOGI(TAG, "slide %s: %u B, read %lld ms, decode %lld ms, blit %lld ms, fade %lld ms, heap %u",
              path, (unsigned)rd,
              (long long)((t1 - t0) / 1000), (long long)((t2 - t1) / 1000),
-             (long long)((t3 - t2) / 1000),
+             (long long)blit_ms, (long long)fade_ms,
              (unsigned)esp_get_free_heap_size());
     return ESP_OK;
 }

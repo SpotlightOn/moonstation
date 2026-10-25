@@ -63,9 +63,13 @@ typedef struct {
 
     // Night deep sleep of the clock mode: the runtime twin of the
     // CLOCK_DEEP_SLEEP compile switch, so the window can be switched off
-    // without a rebuild. Appended last, so a version 2 blob still lines up
-    // field by field and can be migrated.
+    // without a rebuild. Appended, so older blobs still line up field by
+    // field and can be migrated.
     uint8_t clock_deep_sleep_enable;
+
+    // Crossfade between two images in milliseconds, 0 cuts hard. Appended
+    // last for the same reason; the loader migrates a shorter blob.
+    uint16_t slide_fade_ms;
 } settings_t;
 
 extern settings_t settings;

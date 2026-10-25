@@ -1,4 +1,5 @@
 #include "settings.h"
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include "esp_log.h"
@@ -17,6 +18,11 @@
 #endif
 #ifndef SLIDE_DIR
 #define SLIDE_DIR "/slides"
+#endif
+// Crossfade between two images in milliseconds, 0 cuts hard. Needs the PSRAM
+// buffer below; without PSRAM the firmware falls back to the hard cut.
+#ifndef SLIDE_FADE_MS
+#define SLIDE_FADE_MS 0
 #endif
 
 #ifndef BACKLIGHT_FULL_PCT
@@ -119,7 +125,13 @@ static const char *NVS_KEY = "config";
 // so an old blob falls back to the defaults instead of reading garbage. The
 // loader still takes the version before that, as long as nothing but appended
 // fields changed - see settings_init().
-#define SETTINGS_VERSION 3
+#define SETTINGS_VERSION 4
+
+// A version 3 blob ends right before slide_fade_ms; version 2 ends before the
+// deep sleep switch. Both were the same length as everything up to that
+// member, which is what identifies them.
+#define SETTINGS_V3_BLOB_LEN \
+    (sizeof(uint32_t) + offsetof(settings_t, slide_fade_ms))
 
 typedef struct {
     uint32_t version;
@@ -133,6 +145,7 @@ void settings_defaults_into(settings_t *out)
     const settings_t d = {
         .slide_interval_ms = SLIDE_INTERVAL_MS,
         .slide_dir = SLIDE_DIR,
+        .slide_fade_ms = SLIDE_FADE_MS,
         .backlight_full_pct = BACKLIGHT_FULL_PCT,
         .backlight_dim_pct = BACKLIGHT_DIM_PCT,
         .backlight_deep_pct = BACKLIGHT_DEEP_PCT,
@@ -207,6 +220,7 @@ static void sanitize(void)
     // Below one minute the server would shut down while the page is open.
     if (settings.web_idle_timeout_min < 1) settings.web_idle_timeout_min = 1;
     if (settings.clock_deep_sleep_enable > 1) settings.clock_deep_sleep_enable = 1;
+    if (settings.slide_fade_ms > 2000) settings.slide_fade_ms = 2000;
 }
 
 esp_err_t settings_init(void)
@@ -220,13 +234,20 @@ esp_err_t settings_init(void)
         size_t len = sizeof(blob);
         esp_err_t err = nvs_get_blob(handle, NVS_KEY, &blob, &len);
         nvs_close(handle);
-        if (err == ESP_OK && len == sizeof(blob) &&
-            (blob.version == SETTINGS_VERSION || blob.version == SETTINGS_VERSION - 1)) {
+        bool current = err == ESP_OK && len == sizeof(blob) &&
+                       blob.version == SETTINGS_VERSION;
+        // The two versions before this one are shorter by the appended
+        // members; the rest of the struct lines up, the tail reads as zero.
+        bool legacy = err == ESP_OK && len == SETTINGS_V3_BLOB_LEN &&
+                      (blob.version == SETTINGS_VERSION - 1 ||
+                       blob.version == SETTINGS_VERSION - 2);
+        if (current || legacy) {
             settings = blob.values;
-            if (blob.version == SETTINGS_VERSION - 1) {
-                // Version 2 ended before the deep sleep switch, so that member
-                // holds padding bytes of the old blob; it takes the default.
-                settings.clock_deep_sleep_enable = CLOCK_DEEP_SLEEP;
+            if (legacy) {
+                settings.slide_fade_ms = SLIDE_FADE_MS;
+                if (blob.version == SETTINGS_VERSION - 2) {
+                    settings.clock_deep_sleep_enable = CLOCK_DEEP_SLEEP;
+                }
             }
             loaded = true;
         }
