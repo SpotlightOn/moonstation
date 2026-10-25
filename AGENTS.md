@@ -38,7 +38,7 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | `src/CMakeLists.txt` | Main component registration |
 | `src/main.c` | Entry point (`app_main`) |
 | `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`) |
-| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `status`, `pins.h` |
+| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `power`, `status`, `pins.h` |
 | `src/ui/` | Frame buffer drawing helpers (`draw.c/.h`) and the generated fonts (`font.h`) |
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
@@ -78,7 +78,7 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
 ## Hardware facts
 
 - ESP32-S3 N16R8, 16 MB flash, 8 MB octal PSRAM (measured: 8 MB at 80 MHz),
-  CPU at 80 MHz.
+  CPU at 80 MHz, 10 MHz while both cores are idle.
 - 8 MB octal PSRAM at 80 MHz is enabled in the build (`CONFIG_SPIRAM` in
   `sdkconfig.defaults`, boot log: `Found 8MB PSRAM device`, SPI SRAM test OK).
   It holds the optional crossfade frame buffer and the clock-free slide copy of

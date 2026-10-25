@@ -135,6 +135,7 @@ firmware without `config.h` behaves exactly like the fallbacks in that file.
 | `SLIDE_FADE_MS` | `0` | crossfade between two images in ms (0 = hard cut) |
 | `SLIDE_PM_LOW_POWER` | `1` | release the CPU speed lock between two images |
 | `PM_LIGHT_SLEEP` | `0` | automatic light sleep (drops the USB console) |
+| `PM_MIN_CPU_MHZ` | `10` | idle CPU frequency floor (`40` to stay conservative) |
 | `LCD_SPI_HZ` | `40000000` | panel SPI clock |
 | `AUDIO_VOLUME` | `60` | speaker volume (0-100) |
 | `BACKLIGHT_FULL_PCT` | `100` | brightness while active (percent) |
@@ -221,9 +222,9 @@ Then copy the output to the SD card.
 Board: Spotpear ESP32-S3 1.28" BOX, the N16R8 variant that Spotpear also sells
 as an AI desktop assistant running Xiaozhi.
 
-- SoC: ESP32-S3, dual-core Xtensa LX7 up to 240 MHz. The firmware idles at
-  80 MHz (40 MHz when nothing runs), raises the clock to 240 MHz while the
-  setup page is open and drops back when it closes
+- SoC: ESP32-S3, dual-core Xtensa LX7 up to 240 MHz. The firmware runs at
+  80 MHz, drops to 10 MHz while both cores are idle and raises the clock to
+  240 MHz while the setup page is open
 - Flash: 16 MB (W25Q128JVSIQ per Spotpear, reported as 16 MB by the bootloader)
 - PSRAM: 8 MB octal at 80 MHz, enabled in the build and used for the crossfade
   frame and the clock-free slide copy of combined mode

@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "display.h"
 #include "audio.h"
+#include "power.h"
 #include "settings.h"
 #include "slideshow.h"
 
@@ -28,6 +29,7 @@ void app_main(void)
     esp_flash_get_size(NULL, &flash_size);
 
     settings_init(); // after nvs_flash_init, before anything reads a value
+    power_init();    // one place for the clock ceiling every module uses
 
     ESP_LOGI(TAG, "moonstation boot");
     ESP_LOGI(TAG, "chip: %s, cores=%d, flash=%lu MB",

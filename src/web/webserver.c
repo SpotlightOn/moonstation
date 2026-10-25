@@ -8,7 +8,6 @@
 
 #include "esp_log.h"
 #include "esp_netif.h"
-#include "esp_pm.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_https_server.h"
@@ -16,7 +15,7 @@
 #include "freertos/task.h"
 
 #include "clock.h"
-#include "features.h"
+#include "power.h"
 #include "net.h"
 #include "settings.h"
 #include "slideshow.h"
@@ -864,52 +863,13 @@ static void idle_timer_cb(void *arg)
     }
 }
 
-// The page spends nearly all of its time in the TLS stack, which is plain CPU
-// work at the default 80 MHz. While the server is up, raise the power
-// manager's ceiling to 240 MHz and hold the CPU there; when it stops, put the
-// old configuration back, so the box returns to its eco setting (80 MHz under
-// load, 40 MHz idle) and the slideshow stays as cool as before.
-#define WEB_CPU_MHZ 240
-
-static esp_pm_lock_handle_t web_cpu_lock = NULL;
-static bool web_cpu_boosted = false;
-
-static void web_cpu_boost(bool on)
-{
-    if (on == web_cpu_boosted) return;
-    if (web_cpu_lock == NULL &&
-        esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "web_cpu", &web_cpu_lock) != ESP_OK) {
-        return;
-    }
-
-    esp_pm_config_t cfg = {
-        .max_freq_mhz = on ? WEB_CPU_MHZ : CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = on ? CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ
-                           : CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ / 2,
-        .light_sleep_enable = PM_LIGHT_SLEEP,
-    };
-    esp_err_t err = esp_pm_configure(&cfg);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "clock change to %d MHz failed: %s", cfg.max_freq_mhz,
-                 esp_err_to_name(err));
-        return;
-    }
-
-    if (on) {
-        esp_pm_lock_acquire(web_cpu_lock);
-        ESP_LOGI(TAG, "CPU boosted to %d MHz while the page is open", WEB_CPU_MHZ);
-    } else {
-        esp_pm_lock_release(web_cpu_lock);
-        ESP_LOGI(TAG, "CPU back to the eco setting");
-    }
-    web_cpu_boosted = on;
-}
-
 static bool start_server(void)
 {
     if (server) return true;
 
-    web_cpu_boost(true);
+    // TLS is the only workload that gains from 240 MHz; the profile keeps
+    // the clock there until the page closes.
+    power_request(POWER_PROFILE_BOOST);
 
     // The page has to be reachable even when the box is not on a network yet:
     // a factory-fresh box serves it over its own access point. The same path
@@ -918,7 +878,7 @@ static bool start_server(void)
     if (!net_wifi_up()) {
         if (!net_ap_start()) {
             ESP_LOGE(TAG, "neither WiFi nor the setup access point came up");
-            web_cpu_boost(false);
+            power_release(POWER_PROFILE_BOOST);
             return false;
         }
         on_ap = true;
@@ -934,7 +894,7 @@ static bool start_server(void)
         } else {
             net_wifi_down();
         }
-        web_cpu_boost(false);
+        power_release(POWER_PROFILE_BOOST);
         return false;
     }
 
@@ -975,7 +935,7 @@ static bool start_server(void)
             net_wifi_release();
             net_wifi_down();
         }
-        web_cpu_boost(false);
+        power_release(POWER_PROFILE_BOOST);
         return false;
     }
 
@@ -1027,7 +987,7 @@ static void stop_server(void)
         net_wifi_release();
         net_wifi_down();
     }
-    web_cpu_boost(false);
+    power_release(POWER_PROFILE_BOOST);
 }
 
 static void web_task(void *arg)

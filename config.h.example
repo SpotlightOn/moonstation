@@ -43,6 +43,13 @@
 // leave this off unless the board runs unplugged.
 #define PM_LIGHT_SLEEP 0
 
+// Lowest CPU frequency the power manager may pick while the loop waits for the
+// next event. 10 MHz is the 40 MHz crystal divided by four, the lowest step the
+// chip offers outside light sleep. Peripherals that need the APB clock take
+// their own lock and raise it while they work. Raise this to 40 if anything
+// misbehaves at the lower step.
+#define PM_MIN_CPU_MHZ 10
+
 // ================================ Display ==================================
 
 // SPI clock of the GC9A01 panel in Hz. Board level, deliberately not part of
