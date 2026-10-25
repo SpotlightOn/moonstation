@@ -884,8 +884,7 @@ static void web_cpu_boost(bool on)
 
     esp_pm_config_t cfg = {
         .max_freq_mhz = on ? WEB_CPU_MHZ : CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = on ? CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ
-                           : CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ / 2,
+        .min_freq_mhz = on ? CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ : PM_MIN_CPU_MHZ,
         .light_sleep_enable = PM_LIGHT_SLEEP,
     };
     esp_err_t err = esp_pm_configure(&cfg);

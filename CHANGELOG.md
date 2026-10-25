@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Changed**
+
+- Idle drops to 10 MHz (`PM_MIN_CPU_MHZ`) instead of 40 MHz: the power manager
+  is configured once at boot, and only a running task or a driver lock keeps the
+  clock up.
+
 ## 0.4.0 - 2026-10-25
 
 **New**

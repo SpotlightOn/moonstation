@@ -172,8 +172,12 @@ like this:
 ## Power management
 
 The build runs the CPU at 80 MHz with dynamic frequency scaling enabled
-(`CONFIG_PM_ENABLE`, tickless idle), so an idle chip drops to 40 MHz on its own.
-Two pieces of the firmware talk to the power manager:
+(`CONFIG_PM_ENABLE`, tickless idle), so both cores idle drops to 10 MHz on its
+own: `PM_MIN_CPU_MHZ` (`features.h`, default 10) is the lowest step the chip
+offers outside light sleep (40 MHz crystal / 4). The frequency only stays at 80
+while a task runs or a driver holds an APB lock; the power manager takes the
+minimum as soon as every core is in the idle task. Two pieces of the firmware
+talk to the power manager:
 
 - **`SLIDE_PM_LOW_POWER`** (default on, `features.h`) keeps the `CPU_FREQ_MAX`
   lock only around the image work: `show_slide()` and the SD card init/scan take

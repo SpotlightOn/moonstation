@@ -48,6 +48,15 @@
 #define PM_LIGHT_SLEEP 0
 #endif
 
+// Lowest CPU frequency the power manager may select while the UI waits for the
+// next event. 10 MHz is the 40 MHz crystal divided by four, the lowest step the
+// chip offers outside light sleep. Drivers that depend on the APB clock (SPI,
+// I2C, UART, I2S, SD) hold their own lock around a transfer and raise it again
+// while they work. Raise this to 40 if a peripheral misbehaves at the low step.
+#ifndef PM_MIN_CPU_MHZ
+#define PM_MIN_CPU_MHZ 10
+#endif
+
 // Weather mode (1 = on, 0 = off). One adds the fourth mode to the long-press
 // cycle: an OpenWeather screen with the current conditions and, on a tap, the
 // forecast for the next 24 hours. Without an API key the mode shows a hint

@@ -958,21 +958,25 @@ void slideshow_run(void)
 #endif
     last_interaction = esp_timer_get_time() / 1000000LL;
 
-    // Power management: keep max CPU frequency while slideshow work is active.
+    // Power management: the CPU runs at 80 MHz while there is work and drops
+    // to PM_MIN_CPU_MHZ (10 MHz = XTAL/4) when the loop waits for the next
+    // event. Light sleep, if compiled in, is the deeper step on top.
     esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "slideshow", &cpu_max_lock);
 
-#if PM_LIGHT_SLEEP
-    // Automatic light sleep: the power manager sleeps the chip whenever no
-    // lock is held, which is the case between two images and between two
-    // clock minutes. Both frequencies stay available for dynamic scaling.
     esp_pm_config_t pm_cfg = {
         .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-        .min_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ / 2,
-        .light_sleep_enable = true,
+        .min_freq_mhz = PM_MIN_CPU_MHZ,
+        .light_sleep_enable = PM_LIGHT_SLEEP,
     };
-    ESP_ERROR_CHECK(esp_pm_configure(&pm_cfg));
-    // The build disables all GPIO pads during automatic sleep. Two pads have to
-    // stay alive: the touch interrupt is the wake-up source, and the panel's
+    esp_err_t pm_err = esp_pm_configure(&pm_cfg);
+    if (pm_err != ESP_OK) {
+        ESP_LOGW(TAG, "power management not configured: %s",
+                 esp_err_to_name(pm_err));
+    }
+
+#if PM_LIGHT_SLEEP
+    // Automatic light sleep disables all GPIO pads during sleep. Two pads have
+    // to stay alive: the touch interrupt is the wake-up source, and the panel's
     // chip select must stay high so a floating clock line cannot shift noise
     // into the display. The backlight pad is handled by the LEDC driver.
     gpio_sleep_sel_dis((gpio_num_t)PIN_TP_INT);

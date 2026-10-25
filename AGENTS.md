@@ -78,7 +78,7 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
 ## Hardware facts
 
 - ESP32-S3 N16R8, 16 MB flash, 8 MB octal PSRAM (measured: 8 MB at 80 MHz),
-  CPU at 80 MHz.
+  CPU at 80 MHz, 10 MHz while both cores are idle.
 - 8 MB octal PSRAM at 80 MHz is enabled in the build (`CONFIG_SPIRAM` in
   `sdkconfig.defaults`, boot log: `Found 8MB PSRAM device`, SPI SRAM test OK).
   It holds the optional crossfade frame buffer and the clock-free slide copy of
