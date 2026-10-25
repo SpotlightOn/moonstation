@@ -131,7 +131,9 @@ the subset of values that makes sense at runtime.
 | `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
 | `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
 
-Optional WiFi settings enable NTP time sync for the clock mode.
+Optional WiFi settings enable NTP time sync for the clock mode. A box without
+them opens its setup access point on the first boot (see the web server
+section).
 
 ## Deep sleep in clock mode
 
@@ -389,12 +391,14 @@ shows. Nothing else in the firmware knows it exists.
   certificate; that is expected for a device without a domain.
 - **Sockets**: a TLS socket costs about 40 kB of RAM, so the pool holds two;
   if the heap cannot take the second one, the start retries with one.
-- **Auth**: HTTP Basic, checked against a header built once at start. An
-  empty `WEB_PASSWORD` switches authentication off and logs a warning.
+- **Auth**: HTTP Basic, checked against a header built once at start. The login
+  is never empty: a missing or cleared password falls back to the factory
+  `WEB_USER`/`WEB_PASSWORD` (`admin`/`admin`), see *First setup* below.
 - **API**: `GET /api/config` returns the editable subset as form encoded
   `key=value` pairs, `POST /api/config` applies and stores it,
   `POST /api/reset` stores the build time defaults again while keeping the WiFi
-  credentials and the OpenWeather key, and `POST /api/shutdown` closes the page.
+  credentials, the OpenWeather key and the setup login, and
+  `POST /api/shutdown` closes the page.
   Every field also carries its build time default as `key.def`, which the page
   shows next to the label; the `min`/`max` limits sit in the markup and mirror
   the clamp ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client
@@ -404,26 +408,57 @@ shows. Nothing else in the firmware knows it exists.
   `secret` flag in `FIELDS` and are write-only. `GET /api/config` reports
   `<key>.set=0|1` instead of the value and no build time default (that would
   be the template from the config file). A POST with an empty secret field
-  keeps what is stored, so the page can be saved without retyping the key, and
-  `<key>.clear=1` erases it. No credential has a placeholder in the config
-  template; the setup page is the only way to set one.
+  keeps what is stored, so the page can be saved without retyping the key.
+  `<key>.clear=1` erases the WiFi password and the weather key; the setup
+  password cannot be erased, because the page is never left open. No credential
+  has a placeholder in the config template; the setup page is the only way to
+  set one.
 - **Layout**: the form is grouped into `fieldset`s with legends (Network,
   Image show, Backlight, Clock and time, Weather, Sound and battery, Setup
   access). The script only walks `form.elements`, so the grouping cannot affect
   loading or saving, and a new field only needs its markup plus an entry in
   `FIELDS`.
-- **Radio**: the server holds the link with `net_wifi_hold()` for as long as
-  it listens, so the daily NTP sync cannot take the page down.
+- **Radio**: on the home network the server holds the link with
+  `net_wifi_hold()` for as long as it listens, so the daily NTP sync cannot take
+  the page down. Without a network it serves the page over the setup access
+  point instead, which keeps the radio up by itself.
 - **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so
   a forgotten session does not keep the radio up all night.
+
+### First setup
+
+`start_server()` tries the station link first. When there are no credentials or
+the network does not answer, it calls `net_ap_start()` and serves the same page
+over an open access point:
+
+- SSID `Moonstation-XXXX`, `XXXX` from the last two bytes of the soft AP MAC,
+  channel 6, address 192.168.4.1. The default DHCP server of the AP interface
+  hands out the leases.
+- `net_ap_start()` runs `wifi_stack_init()`, which creates the station netif,
+  the AP netif and the driver exactly once; `esp_wifi_set_mode(WIFI_MODE_AP)`
+  then replaces the station mode. `net_ap_stop()` stops the radio again when the
+  page closes.
+- While the login is still the factory one, `/` serves `setup_html` instead of
+  the settings form, and `POST /api/config` accepts only `web_user` and
+  `web_password`. An empty or unchanged factory password is rejected with 400,
+  `/api/reset` with 403. Saving a new login rebuilds the Basic auth header
+  immediately, so the next request asks for it.
+- Saving WiFi credentials while the page runs on the AP is answered first;
+  `esp_restart()` follows two seconds later and the next boot joins the network.
+- On boot without credentials in NVS, `slideshow_run()` calls `web_start()` by
+  itself, so the first setup needs nothing but a phone. The 5 s gesture uses the
+  same fallback when the home network cannot be reached.
+- The AP is open on purpose: it serves only the login form, the factory login
+  has to be replaced before anything else appears, and the AP disappears when
+  WiFi is configured.
 
 ## Clock mode
 
 The clock shows HH:MM and the date, with a small per-minute jitter to reduce
 burn-in. Time comes from the compile time by default; WiFi/NTP can be enabled
 in `config.h`. The radio and the SNTP stack live in `core/net.c` and are
-always linked, so firmware built without credentials keeps the compile time
-and never touches the radio.
+always linked, so firmware built without credentials keeps the compile time and
+runs only the setup access point on the first boot.
 
 `__DATE__`/`__TIME__` are read as local time: the TZ string is installed
 first and `mktime()` resolves summer time, so only the build machine's own

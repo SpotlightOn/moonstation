@@ -4,6 +4,10 @@
 
 **New**
 
+- First setup without a cable: a box without WiFi credentials opens its own
+  access point (`Moonstation-XXXX`, `192.168.4.1`) at boot and serves the setup
+  page there; the 5 s gesture falls back to the same access point when the home
+  network cannot be reached.
 - Weather mode (`WEATHER_ENABLE`, on by default): current conditions plus a
   24-hour forecast that a tap flips through, cached in NVS and refreshed every
   `WEATHER_REFRESH_MIN` minutes by coordinate. Without a key the mode shows a
@@ -15,8 +19,10 @@
 
 **Changed**
 
-- Passwords and the weather key are write-only on the setup page, and no
-  credential is part of the config template any more.
+- The setup page starts with the factory login `admin` / `admin` and serves
+  only the form that replaces it until a new one is saved; the login is never
+  empty, and "Reset to default" keeps it. Passwords and the weather key are
+  write-only, and no credential is part of the config template any more.
 - The setup page raises the CPU to 240 MHz while it is open and hands the clock
   back to the power manager when it closes.
 - Optional crossfade between two images (`SLIDE_FADE_MS`, default 0), decoded

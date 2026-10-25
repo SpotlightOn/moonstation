@@ -57,7 +57,9 @@ typedef struct {
     uint8_t audio_volume;
     uint32_t lcd_spi_hz;
 
-    // Setup web server: an empty password leaves the page open in the LAN
+    // Setup web server: the login is always active. A fresh box starts with
+    // the factory login (WEB_USER/WEB_PASSWORD, by default "admin"/"admin"),
+    // and the page only serves the form that replaces it until that happened.
     char web_user[33];
     char web_password[65];
     uint8_t web_idle_timeout_min;   // silence after which it shuts itself down
@@ -99,9 +101,14 @@ void settings_defaults_into(settings_t *out);
 // Reloads the build-time defaults into the live struct without touching NVS.
 void settings_defaults(void);
 
-// Stores the build-time defaults again, keeping the WiFi credentials of this
-// box: those were typed in here, the config.h value is only a template. This
-// is what the setup page's "Reset to default" button calls.
+// Stores the build-time defaults again, keeping what belongs to this box:
+// the WiFi credentials, the OpenWeather key and the setup login. This is what
+// the setup page's "Reset to default" button calls.
 esp_err_t settings_reset_defaults(void);
+
+// True while the login is still the factory one from WEB_USER/WEB_PASSWORD.
+// The setup page then shows only the form that replaces it and refuses every
+// other change, so the default password cannot be used to configure the box.
+bool settings_web_login_is_default(void);
 
 #endif // SETTINGS_H

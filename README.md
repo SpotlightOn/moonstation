@@ -8,7 +8,8 @@ conditions from OpenWeather and, on a tap, the forecast for the next 24 hours.
 Touch input and the built-in speaker are supported, and the backlight dims
 automatically when idle. Holding a finger on the display for 5 seconds opens a
 setup page over HTTPS, where WiFi, timings, levels and the weather key are
-changed without rebuilding the firmware.
+changed without rebuilding the firmware. A box that has never been on a network
+opens its own access point and serves that page there.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
 
@@ -24,8 +25,12 @@ changed without rebuilding the firmware.
   and a "Reset to default" button restores the firmware defaults. A red dot on
   the lower edge shows that it runs, the display shows its address, and it
   shuts itself down when idle
+- **First setup without a cable**: a box without WiFi opens its own access
+  point (`Moonstation-XXXX`, address `192.168.4.1`), so the page is reachable
+  from a phone before the box has ever been on a network
 - No secrets in the source: WiFi, the page login and the weather key are typed
-  in on that page, stored in NVS and never shown again (write-only fields)
+  in on that page, stored in NVS and never shown again (write-only fields). The
+  factory login `admin` / `admin` must be replaced on the first visit
 - Long press (held over 0.5 s, released) cycles through clock, slideshow,
   combined clock+slideshow and (if built in) weather modes; it boots into clock
   mode. Only a hold that stays on for the full 5 s goes to the setup page
@@ -71,6 +76,30 @@ Serial capture without the monitor:
 stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ```
 
+## First setup
+
+A new or erased box has no WiFi credentials, so there is no network to reach
+the page from. It solves that itself: on the first boot it opens an access
+point and serves the setup page there.
+
+1. Power the box. While the access point runs, the display shows `192.168.4.1`
+   in the battery row.
+2. Join the WiFi network `Moonstation-XXXX` with a phone or laptop. `XXXX` are
+   the last two bytes of the box's MAC, and the network has no password.
+3. Open `https://192.168.4.1/` and accept the certificate warning.
+4. Log in with the factory login `admin` / `admin`. The page shows nothing but
+   one form: choose your own user and password. The factory login stops working
+   as soon as it is saved.
+5. The settings page opens. Enter your WiFi network name and password, plus the
+   weather key and position if you use the weather mode, then Save.
+6. The box restarts, joins your network and closes the access point. For later
+   changes hold a finger on the display for 5 s and open the address it shows.
+
+The access point is open on purpose: it serves nothing but the login form, the
+factory login has to be replaced before anything else appears, and the AP
+disappears once WiFi is configured. If the box later cannot reach its network
+(moved house, new router), the 5 s gesture falls back to the same access point.
+
 ## Setup page
 
 Hold the finger still on the display for 5 seconds. The box beeps, shows its
@@ -83,10 +112,13 @@ Everything the owner tunes lives there: WiFi credentials, the login, the
 weather key and position, slideshow directory and interval, crossfade,
 backlight levels and delays, night window and deep sleep, NTP and timezone,
 audio volume, battery warning level and the idle timeout. All of it is stored
-in NVS and applied without a reboot.
+in NVS and applied without a reboot; only WiFi waits for the next server start
+(the box restarts itself when it was configured over its own access point).
 
-The password and the weather key are write-only: the page reports only whether
-one is stored, an empty field keeps it and a checkbox erases it.
+The login is never empty. A changed user or password takes effect immediately
+and the browser asks for the new one right after saving. The password and the
+weather key are write-only: the page reports only whether one is stored, an
+empty field keeps it, and a checkbox erases the WiFi password or the key.
 
 ## Configuration
 
@@ -131,21 +163,23 @@ firmware without `config.h` behaves exactly like the fallbacks in that file.
 ### Credentials
 
 WiFi, the login of the setup page and the OpenWeather key are not part of the
-template: they are typed in on the page and stored in NVS. Two consequences:
+template: they are typed in on the page and stored in NVS.
 
-- A board whose NVS was erased has no network and cannot reach its own page.
-  For that single first boot, fill `WIFI_SSID` and `WIFI_PASSWORD` into
-  `config.h`, flash, open the page and store a login. Then blank both values
-  again - NVS keeps them.
+- A box without WiFi opens its own access point on the first boot, see
+  [First setup](#first-setup). Neither a cable nor a rebuild is needed.
+- The login ships as `admin` / `admin` and has to be replaced before the page
+  shows anything else. It lives in NVS too, so "Reset to default" keeps it.
 - `config.h` can be committed. Run `git diff` before you do and make sure no
-  credential sneaked in.
+  credential sneaked in. `WIFI_SSID` and `WIFI_PASSWORD` still compile in as an
+  emergency hatch - both empty by default and commented out in the template -
+  for the case where the access point cannot be used.
 
 The WiFi and NTP stack is always compiled in; without an SSID the clock keeps
-the compile time and the radio stays off. With WiFi configured the firmware
-connects, waits for the first NTP answer (up to 10 s) and switches the radio
-off again; if no server answers it keeps the time it had before. It repeats
-that at `NTP_DAILY_SYNC_HOUR`, since the RTC drifts by seconds per day without
-a 32.768 kHz crystal.
+the compile time and the radio runs the setup access point on the first boot.
+With WiFi configured the firmware connects, waits for the first NTP answer (up
+to 10 s) and switches the radio off again; if no server answers it keeps the
+time it had before. It repeats that at `NTP_DAILY_SYNC_HOUR`, since the RTC
+drifts by seconds per day without a 32.768 kHz crystal.
 
 `WEATHER_ENABLE` in `src/config/features.h` (`0` removes the mode from the
 cycle) builds the weather mode in. The request is made by coordinate in metric
@@ -209,6 +243,8 @@ as an AI desktop assistant running Xiaozhi.
 
 ## Runtime behavior
 
+- No WiFi configured: the clock keeps the compile time and the box opens its
+  setup access point on the first boot
 - No SD card: red screen, retry every 2 seconds
 - Empty or missing image directory: yellow screen, rescan every 2 seconds
 - Unreadable or corrupt JPEG: skipped, next image shown

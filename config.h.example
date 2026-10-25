@@ -101,13 +101,14 @@
 
 // ================================= WiFi ====================================
 
-// WiFi is normally set on the setup page and stored in NVS. The two macros
-// exist for one case only: a board that has never been on a network, where
-// the page cannot be reached yet. Fill them in for that first boot, then
-// blank them again - otherwise a password ends up in git.
+// WiFi is normally set on the setup page and stored in NVS. A board without
+// credentials opens its own access point on the first boot (Moonstation-XXXX,
+// https://192.168.4.1), so this is only an emergency hatch for a box whose
+// radio cannot run the access point. Filling it in writes a password into git,
+// so blank it again after the first boot - NVS keeps the value.
 //
-// An empty SSID keeps the radio off, and the setup server then refuses to
-// start: it needs an address to be reachable at.
+// An empty SSID means "not configured": the setup server then starts its own
+// access point instead of joining a network.
 // #define WIFI_SSID "your-ssid"
 // #define WIFI_PASSWORD "your-password"
 
@@ -134,14 +135,14 @@
 
 // ============================ Setup web server =============================
 
-// Login of the configuration page, opened with the 5 s touch gesture. The
-// page runs over HTTPS with a self-signed certificate, so the browser warns
-// on the first visit - that is expected on a device without a domain.
+// Login of the configuration page, opened with the 5 s touch gesture or, on a
+// box without WiFi, by the access point it opens at boot. The page runs over
+// HTTPS with a self-signed certificate, so the browser warns on the first
+// visit - that is expected on a device without a domain.
 //
 // User and password are set on the page itself and stored in NVS; they are
-// deliberately not part of this file. Until one is saved the page logs in as
-// "admin" without a password, so set one before the box leaves the living
-// room table.
+// deliberately not part of this file. The box ships with "admin" / "admin"
+// and serves nothing but the form that replaces that login until it happened.
 
 // Minutes without a request before the server shuts itself down again.
 #define WEB_IDLE_TIMEOUT_MIN 15

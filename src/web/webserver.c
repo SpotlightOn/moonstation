@@ -32,6 +32,7 @@ static const char *TAG = "web";
 #define WEB_SOCKETS 2
 
 static httpd_handle_t server = NULL;
+static bool server_on_ap = false;   // page is served over the setup access point
 static bool busy = false;           // a start/stop worker is running
 static int64_t last_activity_us = 0;
 static char expected_auth[160] = ""; // "Basic <base64>", empty means no login
@@ -75,8 +76,8 @@ static const char index_html[] =
     "#m{margin-top:.9em;color:#8fc;min-height:1.2em}"
     "</style></head><body>"
     "<h1>Moonstation</h1>"
-    "<p class='h'>Settings of the box. Save writes them to flash; WiFi and the"
-    " setup login apply at the next server start.</p>"
+    "<p class='h'>Settings of the box. Save writes them to flash; WiFi applies"
+    " at the next server start, a new setup login right after saving.</p>"
     // The min and max attributes mirror the clamp ranges of FIELDS below, and
     // data-scale bridges the unit of the firmware and the unit of the field.
     "<form id='f' onsubmit='save();return false'>"
@@ -189,10 +190,10 @@ static const char index_html[] =
     "<div><label for='web_password'>Setup password "
     "<small id='web_password.state'></small></label>"
     "<input name='web_password' id='web_password' type='password'"
-    " placeholder='leave empty to keep'>"
-    "<label class='c'><input type='checkbox' id='web_password.clear'>"
-    " clear the stored password</label></div>"
-    "</div></fieldset>"
+    " autocomplete='new-password' placeholder='leave empty to keep'></div>"
+    "</div><p class='h'>The login is never empty. Changing the user or the"
+    " password signs the browser out and asks for the new one right after"
+    " saving.</p></fieldset>"
     "</form>"
     "<div id='controls'>"
     "<button form='f' type='submit'>Save</button>"
@@ -224,10 +225,15 @@ static const char index_html[] =
     "if(i.type=='password'&&i.value==='')return;"
     "d.set(i.id,sc(i)>1?Math.round(i.value*sc(i)):i.value)});"
     "fetch('/api/config',{method:'POST',body:d.toString()})"
-    ".then(function(r){say(r.ok?'saved':'rejected');setTimeout(load,800)})"
+    ".then(function(r){return r.text().then(function(t){"
+    "if(t.indexOf('reboot')>=0){say('saved, the box restarts and joins your WiFi');return}"
+    "if(t.indexOf('relogin')>=0){say('login saved, signing in again');"
+    "setTimeout(function(){location.reload()},1500);return}"
+    "say(r.ok?'saved':'rejected');setTimeout(load,800)})})"
     ".catch(function(){say('could not save')})}"
     "function defaults(){"
-    "if(!confirm('Every setting back to the firmware default? WiFi stays.'))"
+    "if(!confirm('Every setting back to the firmware default? WiFi, login and"
+    " API key stay.'))"
     "return;"
     "fetch('/api/reset',{method:'POST'})"
     ".then(function(r){say(r.ok?'reset to defaults':'rejected');setTimeout(load,800)})"
@@ -236,6 +242,58 @@ static const char index_html[] =
     ".then(function(){say('server stops now')}).catch(function(){});"
     "setTimeout(function(){say('server stopped')},3000)}"
     "load();</script></body></html>";
+
+//
+// First setup. Served instead of the settings page while the factory login is
+// still active, and the only thing the API accepts in that state. A box that a
+// visitor picked up must not show its settings to whoever finds it.
+//
+
+static const char setup_html[] =
+    "<!doctype html><html><head><meta charset='utf-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<title>Moonstation first setup</title><style>"
+    "body{font:15px system-ui,sans-serif;background:#111;color:#eee;"
+    "margin:clamp(1em,2.5vw,4em) auto;padding:1em;max-width:34em;"
+    "box-sizing:border-box}"
+    "h1{font-size:clamp(1.15em,4vw,2.4em);margin:.1em 0}"
+    "p{color:#aaa;line-height:1.45}"
+    "b{color:#eee}"
+    "label{display:block;margin:.9em 0 .2em;color:#8ad}"
+    "input{width:100%;padding:.5em;border-radius:.3em;border:1px solid #333;"
+    "background:#1b1b1b;color:#eee;box-sizing:border-box}"
+    "button{margin-top:1.3em;padding:.6em 1em;border:0;border-radius:.3em;"
+    "background:#2b6cb0;color:#fff;font-size:1em}"
+    "#m{margin-top:1em;color:#8fc;min-height:1.2em}"
+    "</style></head><body>"
+    "<h1>Set up your login</h1>"
+    "<p>This box still uses the factory login <b>admin / admin</b>. Choose your"
+    " own user and password before the settings page opens. The page is only"
+    " reachable in the local network, but with the factory login anyone in it"
+    " could reconfigure the box.</p>"
+    "<form id='c' onsubmit='setpw();return false'>"
+    "<label for='u'>User</label>"
+    "<input id='u' autocomplete='username' value='admin'>"
+    "<label for='p'>New password</label>"
+    "<input id='p' type='password' autocomplete='new-password'>"
+    "<label for='p2'>New password again</label>"
+    "<input id='p2' type='password' autocomplete='new-password'>"
+    "<button type='submit'>Save login</button></form>"
+    "<p id='m'></p><script>"
+    "var m=document.getElementById('m');"
+    "function say(t){m.textContent=t}"
+    "function setpw(){var u=document.getElementById('u').value.trim(),"
+    "p=document.getElementById('p').value,q=document.getElementById('p2').value;"
+    "if(!u){say('the user must not be empty');return}"
+    "if(!p){say('the password must not be empty');return}"
+    "if(p=='admin'){say('choose a password other than the factory one');return}"
+    "if(p!=q){say('the two passwords differ');return}"
+    "var d=new URLSearchParams();d.set('web_user',u);d.set('web_password',p);"
+    "fetch('/api/config',{method:'POST',body:d.toString()})"
+    ".then(function(r){return r.text().then(function(t){"
+    "say(t);if(r.ok){setTimeout(function(){location.reload()},1200)}})})"
+    ".catch(function(){say('could not save')})}"
+    "</script></body></html>";
 
 //
 // Basic auth.
@@ -265,7 +323,9 @@ static void base64_encode(const char *in, char *out, size_t cap)
 static void build_expected_auth(void)
 {
     expected_auth[0] = '\0';
-    if (settings.web_password[0] == '\0') return; // no password, no login
+    // sanitize() keeps the setup password non-empty, so this is only a guard
+    // against a hand-edited value reaching the server.
+    if (settings.web_password[0] == '\0') return;
     char raw[100];
     char encoded[140];
     snprintf(raw, sizeof(raw), "%s:%s", settings.web_user, settings.web_password);
@@ -462,6 +522,18 @@ static void url_decode(const char *in, char *out, size_t cap)
     out[o] = '\0';
 }
 
+// Copy with an explicit truncation point, so the compiler can see that the
+// destination is never overrun (snprintf from an unbounded string trips
+// -Wformat-truncation).
+static void copy_str(char *dst, size_t cap, const char *src)
+{
+    if (cap == 0) return;
+    size_t n = strlen(src);
+    if (n >= cap) n = cap - 1;
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
 //
 // Handlers. httpd runs them one at a time in its own task, so the response
 // buffers below can be static and stay off the stack.
@@ -479,6 +551,9 @@ static esp_err_t index_get(httpd_req_t *req)
     if (!auth_ok(req)) return deny(req);
     touch_activity();
     httpd_resp_set_type(req, "text/html");
+    if (settings_web_login_is_default()) {
+        return httpd_resp_send(req, setup_html, HTTPD_RESP_USE_STRLEN);
+    }
     return httpd_resp_send(req, index_html, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -535,6 +610,21 @@ static esp_err_t config_get(httpd_req_t *req)
     return httpd_resp_send(req, resp_buf, HTTPD_RESP_USE_STRLEN);
 }
 
+// A restart after a save in setup mode: the response has to reach the browser
+// before the connection dies, so the reset follows a moment later.
+static void reboot_task(void *arg)
+{
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    esp_restart();
+}
+
+static void reboot_soon(void)
+{
+    if (xTaskCreate(reboot_task, "web_reboot", 2048, NULL, 5, NULL) != pdPASS) {
+        esp_restart();
+    }
+}
+
 static esp_err_t config_post(httpd_req_t *req)
 {
     if (!auth_ok(req)) return deny(req);
@@ -554,6 +644,16 @@ static esp_err_t config_post(httpd_req_t *req)
     // first, because the browser sends the field and its clear box in page
     // order: applying them as they arrive would erase a value that was just
     // typed next to a box the owner forgot to untick. A typed value wins.
+    //
+    // While the factory login is active only that login is accepted, and it
+    // has to be a different password: everything else is ignored, so a box
+    // with the default password cannot be configured by whoever finds it.
+    const bool login_pending = settings_web_login_is_default();
+    char new_user[sizeof(settings.web_user)] = "";
+    char new_password[sizeof(settings.web_password)] = "";
+    bool login_changed = false;
+    bool wifi_changed = false;
+
     uint32_t seen = 0;
     uint32_t erase = 0;
     int applied = 0;
@@ -583,14 +683,37 @@ static esp_err_t config_post(httpd_req_t *req)
         }
         if (f == NULL) continue;
         size_t idx = (size_t)(f - FIELDS);
+
+        if (login_pending) {
+            if (clear || f->type != F_STR) continue;
+            if (strcmp(f->key, "web_user") == 0) {
+                copy_str(new_user, sizeof(new_user), val);
+            } else if (strcmp(f->key, "web_password") == 0) {
+                copy_str(new_password, sizeof(new_password), val);
+            }
+            continue;
+        }
+
         if (clear) {
-            if (f->secret) erase |= 1u << idx;
+            // The setup login is never erased: a page open to the whole local
+            // network is worse than a password the owner has to remember.
+            if (f->secret && strcmp(f->key, "web_password") != 0) {
+                erase |= 1u << idx;
+            }
             continue;
         }
 
         if (f->type == F_STR) {
             if (f->secret && val[0] == '\0') continue;
             snprintf((char *)field_ptr(f), f->size, "%s", val);
+            if (strcmp(f->key, "web_user") == 0 ||
+                strcmp(f->key, "web_password") == 0) {
+                login_changed = true;
+            }
+            if (strcmp(f->key, "wifi_ssid") == 0 ||
+                strcmp(f->key, "wifi_password") == 0) {
+                wifi_changed = true;
+            }
         } else {
             int32_t v = (int32_t)strtol(val, NULL, 10);
             if (v < f->lo) v = f->lo;
@@ -599,6 +722,26 @@ static esp_err_t config_post(httpd_req_t *req)
         }
         seen |= 1u << idx;
         applied++;
+    }
+
+    if (login_pending) {
+        if (new_password[0] == '\0' ||
+            strcmp(new_password, settings.web_password) == 0) {
+            return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                       "set a password other than the factory one");
+        }
+        if (new_user[0] == '\0') {
+            snprintf(new_user, sizeof(new_user), "%s", settings.web_user);
+        }
+        snprintf(settings.web_user, sizeof(settings.web_user), "%s", new_user);
+        snprintf(settings.web_password, sizeof(settings.web_password), "%s",
+                 new_password);
+        settings_save();
+        build_expected_auth();
+        ESP_LOGI(TAG, "first setup done, login: %s", settings.web_user);
+        httpd_resp_set_type(req, "text/plain");
+        return httpd_resp_send(req, "login stored, signing in again",
+                               HTTPD_RESP_USE_STRLEN);
     }
 
     // Erasing wipes the whole field: leaving the tail of the old secret in
@@ -610,12 +753,28 @@ static esp_err_t config_post(httpd_req_t *req)
     }
 
     settings_save();
+    if (login_changed) {
+        // The browser still sends the old header. Rebuild the comparison now
+        // and tell the page to reload, where the new login is asked for.
+        build_expected_auth();
+        ESP_LOGI(TAG, "setup login changed, the page asks for the new one");
+    }
     ESP_LOGI(TAG, "config saved, %d values, weather key %s", applied,
              settings.weather_api_key[0] ? "set" : "empty");
     clock_apply_timezone(); // the zone is applied on every render
 
-    char msg[48];
-    snprintf(msg, sizeof(msg), "ok, %d values stored", applied);
+    // In setup mode the page only exists over the box's own access point.
+    // With WiFi credentials stored it has to restart to join that network.
+    const bool reboot =
+        server_on_ap && wifi_changed && settings.wifi_ssid[0] != '\0';
+    if (reboot) {
+        ESP_LOGI(TAG, "WiFi stored in setup mode, restarting into the network");
+        reboot_soon();
+    }
+
+    char msg[64];
+    snprintf(msg, sizeof(msg), "ok, %d values stored%s%s", applied,
+             login_changed ? ", relogin" : "", reboot ? ", reboot" : "");
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_send(req, msg, HTTPD_RESP_USE_STRLEN);
 }
@@ -624,6 +783,10 @@ static esp_err_t reset_post(httpd_req_t *req)
 {
     if (!auth_ok(req)) return deny(req);
     touch_activity();
+    if (settings_web_login_is_default()) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
+                                   "set up your login first");
+    }
     if (settings_reset_defaults() != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR,
                                    "reset failed");
@@ -747,24 +910,38 @@ static bool start_server(void)
     if (server) return true;
 
     web_cpu_boost(true);
+
+    // The page has to be reachable even when the box is not on a network yet:
+    // a factory-fresh box serves it over its own access point. The same path
+    // covers a box whose home network is gone (moved house, new router).
+    bool on_ap = false;
     if (!net_wifi_up()) {
-        ESP_LOGE(TAG, "no WiFi, the setup page cannot be reached");
-        web_cpu_boost(false);
-        return false;
+        if (!net_ap_start()) {
+            ESP_LOGE(TAG, "neither WiFi nor the setup access point came up");
+            web_cpu_boost(false);
+            return false;
+        }
+        on_ap = true;
     }
 
-    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey(
+        on_ap ? "WIFI_AP_DEF" : "WIFI_STA_DEF");
     esp_netif_ip_info_t ip = {0};
     if (!netif || esp_netif_get_ip_info(netif, &ip) != ESP_OK || ip.ip.addr == 0) {
-        ESP_LOGE(TAG, "no address after the WiFi connect");
-        net_wifi_down();
+        ESP_LOGE(TAG, "no address for the setup page");
+        if (on_ap) {
+            net_ap_stop();
+        } else {
+            net_wifi_down();
+        }
         web_cpu_boost(false);
         return false;
     }
 
     // Hold the link: the daily NTP sync may bring the radio down again, and
-    // the page must survive that.
-    net_wifi_hold();
+    // the page must survive that. The AP is not touched by the power save
+    // code, so there is nothing to hold there.
+    if (!on_ap) net_wifi_hold();
     build_expected_auth();
 
     httpd_ssl_config_t conf = HTTPD_SSL_CONFIG_DEFAULT();
@@ -792,8 +969,12 @@ static bool start_server(void)
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "https server not started: %s", esp_err_to_name(err));
         server = NULL;
-        net_wifi_release();
-        net_wifi_down();
+        if (on_ap) {
+            net_ap_stop();
+        } else {
+            net_wifi_release();
+            net_wifi_down();
+        }
         web_cpu_boost(false);
         return false;
     }
@@ -804,16 +985,20 @@ static bool start_server(void)
     httpd_register_uri_handler(server, &URI_SHUTDOWN);
     httpd_register_uri_handler(server, &URI_RESET);
 
+    server_on_ap = on_ap;
     snprintf(ui_status.ip, sizeof(ui_status.ip), IPSTR, IP2STR(&ip.ip));
     ui_status.web_server = true;
     last_activity_us = esp_timer_get_time();
     start_idle_timer();
 
     ESP_LOGI(TAG, "setup page: https://%s/", ui_status.ip);
-    if (expected_auth[0] != '\0') {
-        ESP_LOGI(TAG, "login: %s", settings.web_user);
-    } else {
-        ESP_LOGW(TAG, "no login set, the page is open in the local network");
+    if (on_ap) {
+        ESP_LOGI(TAG, "join the open access point \"%s\" to reach it",
+                 net_ap_ssid());
+    }
+    ESP_LOGI(TAG, "login: %s", settings.web_user);
+    if (settings_web_login_is_default()) {
+        ESP_LOGW(TAG, "factory login active, the page asks for a new one");
     }
     ESP_LOGI(TAG, "free heap %u bytes", (unsigned)esp_get_free_heap_size());
     ui_force_redraw();
@@ -835,8 +1020,13 @@ static void stop_server(void)
     ui_status.ip[0] = '\0';
     ui_force_redraw();
 
-    net_wifi_release();
-    net_wifi_down();
+    if (server_on_ap) {
+        server_on_ap = false;
+        net_ap_stop();
+    } else {
+        net_wifi_release();
+        net_wifi_down();
+    }
     web_cpu_boost(false);
 }
 

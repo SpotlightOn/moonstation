@@ -105,11 +105,14 @@
 #define AUDIO_VOLUME 60
 #endif
 
+// Factory login. The setup page replaces it on the first visit: as long as
+// these values are active it serves nothing but the form that sets a new one.
+// No credential belongs in config.h, so neither macro is in the template.
 #ifndef WEB_USER
 #define WEB_USER "admin"
 #endif
 #ifndef WEB_PASSWORD
-#define WEB_PASSWORD ""
+#define WEB_PASSWORD "admin"
 #endif
 #ifndef WEB_IDLE_TIMEOUT_MIN
 #define WEB_IDLE_TIMEOUT_MIN 15
@@ -253,6 +256,16 @@ static void sanitize(void)
     if (settings.web_user[0] == '\0') {
         snprintf(settings.web_user, sizeof(settings.web_user), "admin");
     }
+    // The page is never left without a login: an empty password would hand the
+    // box to everyone in the local network. A stored empty value falls back to
+    // the factory one, which forces the change form on the next visit.
+    if (settings.web_password[0] == '\0') {
+        snprintf(settings.web_password, sizeof(settings.web_password), "%s",
+                 WEB_PASSWORD);
+    }
+    if (settings.web_password[0] == '\0') {
+        snprintf(settings.web_password, sizeof(settings.web_password), "admin");
+    }
     // Below one minute the server would shut down while the page is open.
     if (settings.web_idle_timeout_min < 1) settings.web_idle_timeout_min = 1;
     if (settings.clock_deep_sleep_enable > 1) settings.clock_deep_sleep_enable = 1;
@@ -324,22 +337,34 @@ esp_err_t settings_save(void)
 
 esp_err_t settings_reset_defaults(void)
 {
-    // The WiFi credentials and the OpenWeather key belong to this box and
-    // were entered by hand, the build time values for them are templates at
-    // best. Everything else goes back to the configuration the firmware was
-    // built with.
+    // The WiFi credentials, the OpenWeather key and the setup login belong to
+    // this box and were entered by hand, the build time values for them are
+    // templates at best. Everything else goes back to the configuration the
+    // firmware was built with.
     char ssid[sizeof(settings.wifi_ssid)];
     char password[sizeof(settings.wifi_password)];
     char key[sizeof(settings.weather_api_key)];
+    char user[sizeof(settings.web_user)];
+    char login[sizeof(settings.web_password)];
     memcpy(ssid, settings.wifi_ssid, sizeof(ssid));
     memcpy(password, settings.wifi_password, sizeof(password));
     memcpy(key, settings.weather_api_key, sizeof(key));
+    memcpy(user, settings.web_user, sizeof(user));
+    memcpy(login, settings.web_password, sizeof(login));
 
     settings_defaults();
     memcpy(settings.wifi_ssid, ssid, sizeof(settings.wifi_ssid));
     memcpy(settings.wifi_password, password, sizeof(settings.wifi_password));
     memcpy(settings.weather_api_key, key, sizeof(settings.weather_api_key));
+    memcpy(settings.web_user, user, sizeof(settings.web_user));
+    memcpy(settings.web_password, login, sizeof(settings.web_password));
 
-    ESP_LOGI(TAG, "settings reset to the defaults, WiFi and API key kept");
+    ESP_LOGI(TAG, "settings reset to the defaults, WiFi, API key and login kept");
     return settings_save();
+}
+
+bool settings_web_login_is_default(void)
+{
+    return settings.web_password[0] == '\0' ||
+           strcmp(settings.web_password, WEB_PASSWORD) == 0;
 }

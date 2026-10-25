@@ -10,6 +10,8 @@ images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
 by a long press on the touch screen, an optional weather mode (OpenWeather,
 current conditions and a 24-hour forecast, tap to flip pages), PWM backlight
 dimming, and audio feedback. Touch and the built-in speaker must be functional.
+A box without WiFi credentials opens its own access point (Moonstation-XXXX,
+192.168.4.1) and serves the setup page there, so the first setup needs no cable.
 
 ## Hard rules
 

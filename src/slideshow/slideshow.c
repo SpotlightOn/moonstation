@@ -4,6 +4,7 @@
 #include "touch.h"
 #include "status.h"
 #include "webserver.h"
+#include "net.h"
 #include "audio.h"
 #include "clock.h"
 #include "weather.h"
@@ -1001,6 +1002,11 @@ void slideshow_run(void)
     active_mode->enter();
     screenshot_capture(mode_shot_name(active_mode));
 
+    // A factory-fresh box has no WiFi credentials and therefore no network to
+    // reach its setup page from. It opens its own access point on the first
+    // boot and serves the page there; the 5 s gesture still opens it later.
+    if (!net_wifi_configured()) web_start();
+
     while (1) {
         // Perform a pending mode switch before any other work, so the new
         // mode's enter() redraw makes the change visible immediately.
@@ -1029,7 +1035,7 @@ void slideshow_run(void)
         // sleep before update_backlight() runs, so nothing flashes at night
         // either.
         if (settings.clock_deep_sleep_enable && active_mode == &clock_mode &&
-            clock_deep_sleep_window_active() &&
+            clock_deep_sleep_window_active() && !web_is_running() &&
             esp_timer_get_time() / 1000000LL - last_interaction >=
                 settings.backlight_deep_after_sec &&
             gpio_get_level((gpio_num_t)PIN_TP_INT) != 0) {
