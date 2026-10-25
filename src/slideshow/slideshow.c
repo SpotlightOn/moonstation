@@ -33,8 +33,9 @@
 
 static const char *TAG = "slideshow";
 // Shared RGB565 frame buffer, assigned in slideshow_run(). Both the slides
-// and the clock overlay are drawn into it, which is what makes one buffer
-// enough for the whole firmware.
+// and the clock overlay are drawn into it, so one internal buffer is enough
+// for the whole firmware; combined mode keeps a clock-free slide copy in
+// PSRAM next to the fade frame, see clean_buf below.
 static uint16_t *slide_fb = NULL;
 static volatile bool advance_req = false;
 static int64_t last_interaction = 0;
@@ -45,6 +46,16 @@ static TaskHandle_t main_task = NULL;
 static esp_timer_handle_t wake_timer = NULL;
 static int last_brightness = -1;
 static int last_clock_min = -1;
+// PSRAM copy of the slide without the clock overlay. Combined mode needs the
+// plain image again when only the minute changes: the overlay painted over the
+// slide pixels in the shared frame buffer, and decoding the JPEG again just to
+// repaint them would cost a full SD read and decode every minute.
+static uint16_t *clean_buf = NULL;
+static bool clean_valid = false;
+static bool clean_warned = false;
+// True while the clock+slideshow mode is active: slides are composited with
+// the clock before they are pushed, so a crossfade keeps the clock static.
+static bool combined_overlay = false;
 
 //
 // Wake-up plumbing: one one-shot esp_timer plus a task notification wakes the
@@ -189,7 +200,12 @@ static void fill_color(uint16_t color)
 {
     uint16_t px = RGB565_SWAP(color);
     for (size_t i = 0; i < 240 * 240; i++) slide_fb[i] = px;
-    ui_status_draw(slide_fb);
+    clean_valid = false; // the clean copy no longer matches the screen
+    if (combined_overlay) {
+        clock_compose(slide_fb); // error screens keep the clock on top
+    } else {
+        ui_status_draw(slide_fb);
+    }
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
 }
 
@@ -306,6 +322,21 @@ static uint16_t *fade_buf_get(void)
     return fade_buf;
 }
 
+// Allocates the clock-free slide copy in PSRAM on first use. Returns NULL when
+// the build or the board has none; combined mode then falls back to decoding
+// the slide again on every minute change.
+static uint16_t *clean_buf_get(void)
+{
+    if (clean_buf) return clean_buf;
+    clean_buf = heap_caps_aligned_alloc(64, 240 * 240 * sizeof(uint16_t),
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!clean_buf && !clean_warned) {
+        ESP_LOGW(TAG, "no PSRAM for the clean slide copy, minute updates re-decode");
+        clean_warned = true;
+    }
+    return clean_buf;
+}
+
 // Draws one alpha step of the transition, band by band.
 static void fade_step(const uint16_t *old_img, const uint16_t *new_img,
                       int width, int height, unsigned alpha)
@@ -348,6 +379,10 @@ static void release_slide_resources(void)
     jpeg_buf_cap = 0;
     heap_caps_free(fade_buf);
     fade_buf = NULL;
+    heap_caps_free(clean_buf);
+    clean_buf = NULL;
+    clean_valid = false;
+    combined_overlay = false;
     shown_w = 0;
     shown_h = 0;
     ESP_LOGI(TAG, "released decoder and input buffer, heap %u",
@@ -404,21 +439,37 @@ static esp_err_t show_slide_now(const char *path)
     int64_t t2 = esp_timer_get_time();
     int64_t blit_ms = 0;
     int64_t fade_ms = 0;
-    if (fade) {
+    size_t img_bytes = (size_t)info.width * info.height * sizeof(uint16_t);
+    if (combined_overlay) {
+        // Keep a clock-free copy before the overlay is drawn into `dst`: the
+        // minute refresh restores the slide from it instead of decoding again.
+        uint16_t *clean = clean_buf_get();
+        if (clean) {
+            memcpy(clean, dst, img_bytes);
+            clean_valid = true;
+        } else {
+            clean_valid = false;
+        }
+        // Compose the clock into the new frame as well. Pixels that do not
+        // change are then identical in both frames, and blend565(a, a, alpha)
+        // leaves them untouched: only the slide itself crossfades.
+        clock_compose(dst);
+    } else {
         ui_status_draw(dst);
+    }
+    if (fade) {
         int w = info.width < shown_w ? info.width : shown_w;
         int h = info.height < shown_h ? info.height : shown_h;
         fade_ms = fade_transition(slide_fb, dst, w, h);
         // The last step ends on the new image: keep it in the frame buffer so
         // the next transition starts from what the panel shows.
-        memcpy(slide_fb, dst, (size_t)info.width * info.height * sizeof(uint16_t));
+        memcpy(slide_fb, dst, img_bytes);
         if (info.width != shown_w || info.height != shown_h) {
             // Sizes differ, the blend only covered the common area.
             esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width,
                                       info.height, slide_fb);
         }
     } else {
-        ui_status_draw(slide_fb);
         esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width, info.height, slide_fb);
     }
     shown_w = info.width;
@@ -613,6 +664,7 @@ static void apply_power_for_mode(bool clock_active)
 static void clock_enter(void)
 {
     apply_power_for_mode(true);
+    combined_overlay = false;
     last_clock_min = -1;
     clock_render(NULL); // black background, draws immediately
     struct tm tm;
@@ -653,6 +705,7 @@ static void slideshow_enter(void)
 {
     apply_power_for_mode(false);
     advance_req = false;
+    combined_overlay = false;
     // Redraw unconditionally: the clock mode may have blanked the shared
     // frame buffer, so the buffered slide cannot be trusted anymore.
     slide_active = false;
@@ -689,10 +742,11 @@ static void combined_enter(void)
     apply_power_for_mode(false);
     advance_req = false;
     slide_active = false; // same reason as in slideshow_enter
+    // Every slide from now on is composited with the clock before it is
+    // pushed, on entry as well as during a crossfade, so the overlay never
+    // fades away with the image.
+    combined_overlay = true;
     slideshow_step();
-    // slide_fb holds the latest slide (or the error fill); draw over it.
-    last_clock_min = -1;
-    clock_render(slide_fb);
     struct tm tm;
     time_t now = time(NULL);
     localtime_r(&now, &tm);
@@ -709,16 +763,25 @@ static void combined_on_wake(void)
     struct tm tm;
     time_t now = time(NULL);
     localtime_r(&now, &tm);
-    if (redrawn || tm.tm_min != last_clock_min) {
-        // The overlay writes into the shared buffer, so the slide pixels
-        // under the clock are gone. Without a fresh slide, decode it again
-        // first to avoid compositing the clock over its own leftovers.
-        if (!redrawn && slide_count > 0) {
-            show_slide(slide_paths[slide_idx]);
-        }
-        clock_render(slide_fb);
+    if (redrawn) {
+        // show_slide_now() has already composited and pushed the clock.
         last_clock_min = tm.tm_min;
+        return;
     }
+    if (tm.tm_min == last_clock_min) return;
+    // The overlay painted over the slide pixels in the shared buffer, so put
+    // the clock-free copy back before drawing the new time. Without that copy
+    // (no PSRAM) the slide has to be decoded again, as before.
+    if (clean_valid) {
+        memcpy(slide_fb, clean_buf, (size_t)shown_w * shown_h * sizeof(uint16_t));
+    } else if (slide_count > 0) {
+        // show_slide_now() draws the clock into the new frame as well.
+        show_slide(slide_paths[slide_idx]);
+        last_clock_min = tm.tm_min;
+        return;
+    }
+    clock_render(slide_fb);
+    last_clock_min = tm.tm_min;
 }
 
 static int64_t combined_next_wake_us(int64_t now_us)
