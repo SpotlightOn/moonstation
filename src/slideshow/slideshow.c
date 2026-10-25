@@ -94,6 +94,21 @@ static void wake_timer_cb(void *arg)
     wake_main_task();
 }
 
+// The deepest backlight step can be a dark screen (the level is a percent
+// value, 0 is off). That only belongs to the night window, where the clock
+// mode goes to deep sleep anyway and a touch is the only thing that should
+// light the display. Outside the window the schedule stops at the dim level:
+// a clock that vanishes in the middle of the day looks like a dead device,
+// and the wake-up at the end of the window would leave it dark all day.
+static bool backlight_blank_allowed(void)
+{
+#if CLOCK_DEEP_SLEEP
+    return settings.clock_deep_sleep_enable && clock_deep_sleep_window_active();
+#else
+    return false;
+#endif
+}
+
 // Microseconds until the next backlight dimming step, relative to now_us.
 static int64_t next_backlight_step_us(int64_t now_us)
 {
@@ -101,10 +116,10 @@ static int64_t next_backlight_step_us(int64_t now_us)
     if (idle_sec < settings.backlight_dim_after_sec) {
         return (settings.backlight_dim_after_sec - idle_sec) * 1000000LL;
     }
-    if (idle_sec < settings.backlight_deep_after_sec) {
+    if (idle_sec < settings.backlight_deep_after_sec && backlight_blank_allowed()) {
         return (settings.backlight_deep_after_sec - idle_sec) * 1000000LL;
     }
-    return INT64_MAX; // already at the deepest level
+    return INT64_MAX; // already at the deepest level this time of day allows
 }
 
 // Microseconds until the next wall-clock minute boundary.
@@ -121,9 +136,9 @@ static void update_backlight(void)
     if (last_interaction == 0) last_interaction = now;
     int64_t idle = now - last_interaction;
     int brightness;
-    if (idle > settings.backlight_deep_after_sec) {
+    if (idle >= settings.backlight_deep_after_sec && backlight_blank_allowed()) {
         brightness = settings.backlight_deep_pct;
-    } else if (idle > settings.backlight_dim_after_sec) {
+    } else if (idle >= settings.backlight_dim_after_sec) {
         brightness = settings.backlight_dim_pct;
     } else {
         brightness = settings.backlight_full_pct;
@@ -131,6 +146,8 @@ static void update_backlight(void)
     // Only touch the LEDC peripheral when the level actually changes.
     if (brightness != last_brightness) {
         display_backlight_set_brightness(brightness);
+        ESP_LOGI(TAG, "backlight %d%% after %lld s idle", brightness,
+                 (long long)idle);
         last_brightness = brightness;
     }
 }
@@ -939,15 +956,6 @@ void slideshow_run(void)
     weather_init();
 #endif
     last_interaction = esp_timer_get_time() / 1000000LL;
-#if CLOCK_DEEP_SLEEP
-    // A timer wake-up continued a deep sleep: either the sleep window just
-    // ended (the clock reappears dimmed) or it still lasts and the loop sends
-    // the board straight back to sleep. Both want the backlight schedule to
-    // start at its dimmest level instead of lighting the display up again.
-    if (esp_sleep_get_wakeup_causes() & (1 << ESP_SLEEP_WAKEUP_TIMER)) {
-        last_interaction -= settings.backlight_deep_after_sec + 1;
-    }
-#endif
 
     // Power management: keep max CPU frequency while slideshow work is active.
     esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "slideshow", &cpu_max_lock);
@@ -1013,9 +1021,16 @@ void slideshow_run(void)
         // stays completely dark - no redraw, no backlight. The touch line must
         // be idle-high, otherwise the ext0 wake would fire right away and
         // loop the boot.
+        //
+        // A timer wake-up ends that deep sleep, and the backlight then starts
+        // its normal schedule, so the clock is readable again at the start of
+        // the day: display_init() left the panel dark until this point, and a
+        // wake-up that still finds the window active goes straight back to
+        // sleep before update_backlight() runs, so nothing flashes at night
+        // either.
         if (settings.clock_deep_sleep_enable && active_mode == &clock_mode &&
             clock_deep_sleep_window_active() &&
-            esp_timer_get_time() / 1000000LL - last_interaction >
+            esp_timer_get_time() / 1000000LL - last_interaction >=
                 settings.backlight_deep_after_sec &&
             gpio_get_level((gpio_num_t)PIN_TP_INT) != 0) {
             int64_t sleep_us = clock_deep_sleep_window_end_us();
