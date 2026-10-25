@@ -111,7 +111,7 @@ static const char index_html[] =
     "<small id='backlight_dim_pct.def'></small></label>"
     "<input name='backlight_dim_pct' id='backlight_dim_pct' type='number'"
     " min='0' max='100'></div>"
-    "<div><label for='backlight_deep_pct'>Deep dim brightness (%) "
+    "<div><label for='backlight_deep_pct'>Deep dim brightness (%, night only) "
     "<small id='backlight_deep_pct.def'></small></label>"
     "<input name='backlight_deep_pct' id='backlight_deep_pct' type='number'"
     " min='0' max='100'></div>"

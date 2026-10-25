@@ -57,7 +57,7 @@ void clock_apply_timezone(void)
 // byte swaps them once on the way into the frame buffer, see RGB565_SWAP
 // in display.h, so callers always work with natural color values.
 #define COLOR_BATT_LOW 0xF800      // red
-#define COLOR_BATT_CHARGING 0x01E0 // dark green, so the icon does not glare
+#define COLOR_BATT_CHARGING 0x0320 // RGB565, green channel 25/63 (~101/255)
 #define COLOR_BATT_NORMAL 0xFFFF   // white
 #define COLOR_IP 0xAD55             // mid grey, the address must not glare
 #define COLOR_WHITE 0xFFFF         // white
@@ -330,7 +330,9 @@ void clock_compose(uint16_t *fb)
     draw_text_center(dbuf, y, jx, COLOR_WHITE, fb);
 
 #if CLOCK_SHOW_BATTERY
-    y += draw_text_height() + 4;
+    // The row sits clearly below the date, closer to the lower edge of the
+    // round panel: with the old 4 px gap the shift was too small to notice.
+    y += draw_text_height() + 12;
     // The address of the setup page replaces the battery row while the
     // server runs; both want the same row and the address matters more.
     if (ui_status.ip[0] == '\0') draw_battery_row(jx, y + jy, fb);
