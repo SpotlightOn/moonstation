@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Group the setup page into labeled fieldsets.
 - Optional crossfade between two images (`SLIDE_FADE_MS`, default 0): the next
   image is decoded into a PSRAM frame and mixed into the panel band by band
   while the old one stays on screen. Needs the 8 MB PSRAM of the board, which

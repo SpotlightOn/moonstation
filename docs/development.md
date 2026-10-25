@@ -331,6 +331,10 @@ shows. Nothing else in the firmware knows it exists.
   ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client side
   reads and writes that format, so quotes, spaces and umlauts in passwords
   survive without an escaping bug on either side.
+- **Layout**: the form is grouped into `fieldset`s with legends (Network,
+  Image show, Backlight, Clock and time, Sound and battery, Setup access). The
+  script only walks `form.elements`, so the grouping cannot affect loading or
+  saving, and a new field only needs its markup plus an entry in `FIELDS`.
 - **Radio**: the server holds the link with `net_wifi_hold()` for as long as
   it listens, so the daily NTP sync cannot take the page down.
 - **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so
