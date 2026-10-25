@@ -75,8 +75,8 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
   CPU at 80 MHz.
 - 8 MB octal PSRAM at 80 MHz is enabled in the build (`CONFIG_SPIRAM` in
   `sdkconfig.defaults`, boot log: `Found 8MB PSRAM device`, SPI SRAM test OK).
-  It holds the optional crossfade frame buffer; everything else runs on the
-  internal RAM.
+  It holds the optional crossfade frame buffer and the clock-free slide copy of
+  combined mode; everything else runs on the internal RAM.
 - Console: logs go to UART0 on GPIO 43/44 and to the chip's native USB
   Serial/JTAG, which is the `/dev/ttyACM0` on the dev machine. That USB
   peripheral cannot survive light sleep, so keep `PM_LIGHT_SLEEP` off while

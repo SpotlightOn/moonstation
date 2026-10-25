@@ -240,6 +240,15 @@ Decode time is unaffected (36-49 ms), the extra internal RAM is the 7.7 kB band
 buffer, and the second frame is 115.2 kB of PSRAM. A fade writes ~1.8 MB to the
 panel, so it is off by default for battery operation.
 
+In clock+slideshow mode the clock is part of both frames: `clock_compose()`
+draws the overlay into the new image before the fade starts. Pixels that do not
+change are then identical in both frames and `blend565(a, a, alpha)` leaves them
+untouched, so only the slide crossfades and the clock stays still. The same mode
+keeps a third PSRAM buffer with the clock-free slide (`clean_buf`): the overlay
+paints over the slide pixels in the shared frame buffer, and restoring the copy
+on a minute change avoids re-reading and re-decoding the JPEG every minute.
+Without PSRAM the mode falls back to decoding the slide again on a minute change.
+
 PSRAM is part of the default heap after boot, which is why `esp_get_free_heap_size()`
 reports ~8.3 MB in the logs. The internal-only figure is
 `heap_caps_get_free_size(MALLOC_CAP_INTERNAL)`.

@@ -345,17 +345,8 @@ static void draw_battery_row(int x, int y, uint16_t *fb) {
 }
 #endif // CLOCK_SHOW_BATTERY
 
-void clock_render(const uint16_t *background)
+void clock_compose(uint16_t *fb)
 {
-    // Shared with the slideshow: combined mode passes the very same buffer
-    // (nothing to copy then), clock mode passes no background at all.
-    uint16_t *fb = display_get_framebuffer();
-    if (background && background != fb) {
-        for (size_t i = 0; i < 240 * 240; i++) fb[i] = background[i];
-    } else if (!background) {
-        for (size_t i = 0; i < 240 * 240; i++) fb[i] = RGB565_SWAP(COLOR_BLACK);
-    }
-
     time_t now;
     time(&now);
     struct tm tm;
@@ -393,5 +384,19 @@ void clock_render(const uint16_t *background)
     if (ui_status.ip[0] != '\0') draw_setup_ip(ui_status.ip, y + jy, fb);
 
     ui_status_draw(fb);
+}
+
+void clock_render(const uint16_t *background)
+{
+    // Shared with the slideshow: combined mode passes the very same buffer
+    // (nothing to copy then), clock mode passes no background at all.
+    uint16_t *fb = display_get_framebuffer();
+    if (background && background != fb) {
+        for (size_t i = 0; i < 240 * 240; i++) fb[i] = background[i];
+    } else if (!background) {
+        for (size_t i = 0; i < 240 * 240; i++) fb[i] = RGB565_SWAP(COLOR_BLACK);
+    }
+
+    clock_compose(fb);
     esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, fb);
 }
