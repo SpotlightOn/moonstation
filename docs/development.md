@@ -10,7 +10,7 @@ moonstation/
 ├── platformio.ini
 ├── partitions_16mb.csv
 ├── config.h.example
-├── config.h                 (git-ignored, local only)
+├── config.h                 (tracked, no secrets, local board settings)
 ├── src/
 │   ├── main.c
 │   ├── CMakeLists.txt
@@ -92,9 +92,10 @@ EOF
 
 ## Configuration
 
-Copy `config.h.example` to `config.h` and adjust. `config.h` is git-ignored and
-off limits to agents; always edit the example and add `#ifndef` fallbacks in
-code. Available macros:
+Copy `config.h.example` to `config.h` and adjust. `config.h` is tracked, so it
+must not contain a credential: WiFi, the setup login and the weather key are
+typed in on the setup page and live in NVS. Add new settings as a macro in the
+example plus an `#ifndef` fallback in code. Available macros:
 
 At build time `config.h` seeds the defaults of `src/config/settings.c`, which
 is the only file including it. The macros land in `settings_t`, NVS overlays
@@ -112,9 +113,9 @@ the subset of values that makes sense at runtime.
 | `AUDIO_VOLUME` | `60` | speaker volume (0-100) |
 | `BACKLIGHT_FULL_PCT` | `100` | brightness while active (percent) |
 | `BACKLIGHT_DIM_PCT` | `20` | brightness after `BACKLIGHT_DIM_AFTER_SEC` |
-| `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC` |
+| `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC`, night window only |
 | `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
-| `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step |
+| `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step (night window only) |
 | `CLOCK_DEEP_SLEEP` | `0` | builds the night deep sleep in and enables it by default |
 | `CLOCK_DEEP_SLEEP_FROM` | `23` | first local hour of the deep sleep window |
 | `CLOCK_DEEP_SLEEP_TO` | `7` | first local hour after the deep sleep window |
@@ -401,10 +402,11 @@ shows. Nothing else in the firmware knows it exists.
   survive without an escaping bug on either side.
 - **Secrets**: `wifi_password`, `web_password` and `weather_api_key` carry the
   `secret` flag in `FIELDS` and are write-only. `GET /api/config` reports
-  `<key>.set=0|1` instead of the value and no build time default (that would be
-  the template from `config.h`). A POST with an empty secret field keeps what
-  is stored, so the page can be saved without retyping the key, and
-  `<key>.clear=1` erases it.
+  `<key>.set=0|1` instead of the value and no build time default (that would
+  be the template from the config file). A POST with an empty secret field
+  keeps what is stored, so the page can be saved without retyping the key, and
+  `<key>.clear=1` erases it. No credential has a placeholder in the config
+  template; the setup page is the only way to set one.
 - **Layout**: the form is grouped into `fieldset`s with legends (Network,
   Image show, Backlight, Clock and time, Weather, Sound and battery, Setup
   access). The script only walks `form.elements`, so the grouping cannot affect
@@ -519,5 +521,5 @@ Use the serial monitor at 115200 baud. Build artifacts and logs are under
 
 - One logical change per commit; short English commit messages
 - Keep `README.md`, `AGENTS.md` and `PLAN.md` in sync with the code
-- Never commit `config.h`, `*.bin` or `.pio/`
+- Never commit a credential, `*.bin` or `.pio/`
 - Leave binary and data assets (including slide images) untouched

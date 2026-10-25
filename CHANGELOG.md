@@ -1,27 +1,37 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-25
 
+**New**
+
+- Weather mode (`WEATHER_ENABLE`, on by default): current conditions plus a
+  24-hour forecast that a tap flips through, cached in NVS and refreshed every
+  `WEATHER_REFRESH_MIN` minutes by coordinate. Without a key the mode shows a
+  hint instead of a screen.
+- Proportional body font for dates, labels and readings; the clock keeps its
+  bold 48 px font. Weekday in front of the date (`Sun, 25.10.2026`).
+- Optional frame dump as a BMP on the SD card for layout debugging
+  (`SCREENSHOT_ENABLE`, off by default).
+
+**Changed**
+
+- Passwords and the weather key are write-only on the setup page, and no
+  credential is part of the config template any more.
+- The setup page raises the CPU to 240 MHz while it is open and hands the clock
+  back to the power manager when it closes.
+- Optional crossfade between two images (`SLIDE_FADE_MS`, default 0), decoded
+  into a PSRAM frame and mixed into the panel band by band.
+- Slides are decoded with `espressif/esp_new_jpeg` instead of the TJpgDec ROM
+  codec: 189 ms -> 36 ms on average over 30 slides (5.3x) at 80 MHz.
+- Optional automatic light sleep (`PM_LIGHT_SLEEP`, off by default) and a CPU
+  speed lock that is only held around the image work.
 - Group the setup page into labeled fieldsets.
-- Optional crossfade between two images (`SLIDE_FADE_MS`, default 0): the next
-  image is decoded into a PSRAM frame and mixed into the panel band by band
-  while the old one stays on screen. Needs the 8 MB PSRAM of the board, which
-  the build now enables, plus ~11 kB flash and a 7.7 kB band buffer. One
-  transition costs about half a second of SPI traffic.
-- Hold the CPU speed lock only around the image work (`SLIDE_PM_LOW_POWER`), so
-  the power manager can drop the clock between two images.
-- Optional automatic light sleep (`PM_LIGHT_SLEEP`, off by default) between
-  images and clock minutes; backlight PWM survives it, a USB host blocks it.
-- Decode slides with `espressif/esp_new_jpeg` (SIMD accelerated on the ESP32-S3)
-  instead of the TJpgDec ROM codec. Measured on the board at 80 MHz over 30
-  slides: decode time 189 ms -> 36 ms on average (5.3x), worst case 231 ms ->
-  50 ms. Costs 72 kB flash and ~14 kB heap. The decoder handle stays open
-  across images and the panel frame buffer is 16-byte aligned for the SIMD
-  path.
-- Reuse one JPEG input buffer for all slides instead of allocating per image,
-  and hand the decoder handle and that buffer back to the heap when the clock
-  mode takes over (roughly 14 kB free while the clock runs).
-- Log read, decode and blit time per slide.
+
+**Fixed**
+
+- The deepest backlight step blanked the screen after 90 s of idle outside the
+  night window, and the wake-up at the end of the night left it dark until the
+  next touch. It now applies inside the window only.
 
 ## 0.3.0 - 2026-10-23
 

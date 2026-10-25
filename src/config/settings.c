@@ -61,6 +61,11 @@
 #define NTP_DAILY_SYNC_HOUR 4
 #endif
 
+// Credentials are not part of the shipped template: WiFi, the page login and
+// the weather key are typed in on the setup page and stored in NVS. These
+// fallbacks only keep a build without config.h compiling, and they are what
+// an unconfigured device starts with (empty WiFi = radio stays off, the page
+// logs in as "admin" without a password).
 #ifndef WIFI_SSID
 #define WIFI_SSID ""
 #endif
@@ -115,8 +120,9 @@
 #endif
 
 // Weather mode: OpenWeather key, position and refresh interval. The key is
-// only a seed for NVS, the setup page stores the one the box really uses.
-// The coordinates are stringified because they end up in the request URL.
+// write-only on the setup page and lives in NVS; this fallback is empty and
+// only keeps the build compiling. The coordinates are stringified because
+// they end up in the request URL.
 #ifndef WEATHER_API_KEY
 #define WEATHER_API_KEY ""
 #endif

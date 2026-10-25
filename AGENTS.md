@@ -15,13 +15,13 @@ dimming, and audio feedback. Touch and the built-in speaker must be functional.
 
 1. English only in code, identifiers, comments, serial output, on-screen text and
    commit messages.
-2. Never read, edit, grep or cat `config.h` in the project root. It holds local
-   settings and is git-ignored. Work with `config.h.example` only and drive every
-   new setting through a macro there plus an `#ifndef` fallback in
-   `src/config/settings.c`; that file and `src/config/features.h` are the only
-   ones that include `config.h`.
+2. `config.h` is tracked and may be read. It must never contain a credential:
+   WiFi, the setup-page login and the weather key are typed in on the setup page
+   and live in NVS. Add every new setting as a macro in `config.h.example` plus
+   an `#ifndef` fallback in `src/config/settings.c`; that file and
+   `src/config/features.h` are the only ones that include `config.h`.
    `platformio.ini` adds the project root to the include path (`-I.`).
-3. Never commit `config.h`, `*.bin` or `.pio/`.
+3. Never commit a credential, `*.bin` or `.pio/`.
 4. No absolute paths or home directory references in source, comments, docs or
    commit messages.
 5. Leave binary and data assets alone.
@@ -47,7 +47,7 @@ dimming, and audio feedback. Touch and the built-in speaker must be functional.
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
 | `src/idf_component.yml` | Managed ESP-IDF dependencies |
 | `config.h.example` | Tracked config template |
-| `config.h` | Local settings, git-ignored, off limits |
+| `config.h` | Tracked local board settings, never a credential |
 | `PLAN.md` | Implementation plan |
 
 ## Build, flash, monitor
@@ -98,4 +98,4 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
 - Work on a `feature/*` branch; never commit to `main` directly.
 - One logical change per commit; short English commit message.
 - Keep README/AGENTS in sync with build steps, pins and config macros.
-- Never commit `config.h` or `.pio/`.
+- Never commit a credential or `.pio/`.

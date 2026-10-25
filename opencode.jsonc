@@ -12,28 +12,6 @@
   // and cannot be lifted by an approval. The one permission policy for all
   // projects lives in ~/.config/opencode/opencode.jsonc.
   "policies": [
-    // config.h holds local secrets and must never be read or edited.
-    // The absolute-path form is covered by the leading wildcard.
-    { "action": "tool.use", "resource": "read:config.h", "effect": "deny" },
-    { "action": "tool.use", "resource": "read:*config.h", "effect": "deny" },
-    { "action": "tool.use", "resource": "edit:config.h", "effect": "deny" },
-    { "action": "tool.use", "resource": "edit:*config.h", "effect": "deny" },
-    { "action": "tool.use", "resource": "glob:config.h", "effect": "deny" },
-    { "action": "tool.use", "resource": "glob:*config.h", "effect": "deny" },
-
-    // Shell commands are raw text. Block every form that names the real file
-    // (as last argument, or followed by a separator or quotes); the tracked
-    // template config.h.example stays usable in shell commands.
-    { "action": "tool.use", "resource": "shell:*config.h", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h *", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h;*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h|*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h&*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h>*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h<*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h\"*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h'*", "effect": "deny" },
-    { "action": "tool.use", "resource": "shell:*config.h)*", "effect": "deny" },
 
     // Example slide images are not part of the software and must never be
     // read, edited or discovered by any tool. Glob covers pattern-based reads.

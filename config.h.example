@@ -1,15 +1,17 @@
-// Local configuration of this build.
+// Configuration template of this build.
 //
 // Copy this file to config.h in the project root and adjust it. config.h is
-// git-ignored and must never be committed. Every value below is optional:
-// each one has a built-in default (the #ifndef fallbacks in
-// src/config/settings.c), so a build without config.h still works.
+// tracked in git, so it must never hold a secret: WiFi credentials, the login
+// of the setup page and the weather key are typed in on the setup page and
+// live in NVS only. Every value below is optional: each one has a built-in
+// default (the #ifndef fallbacks in src/config/settings.c), so a build
+// without config.h still works.
 //
 // Where a value lives:
 //   config.h    compile time: which features are built in, board level
 //               wiring, and the defaults for the runtime settings
-//   NVS / web   runtime values the owner tunes at home; they override the
-//               defaults from here, see "Setup web server" below
+//   NVS / web   runtime values the owner tunes at home, including every
+//               credential; they override the defaults from here
 
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -65,7 +67,9 @@
 #define CLOCK_DEEP_SLEEP_TO 7
 
 // Backlight auto-dimming: levels in percent, delays in seconds. The dim
-// level is only reached while nothing is touched; the deep level follows.
+// level is only reached while nothing is touched. The deep level follows it,
+// but only inside the night window: outside of it the display stays at the
+// dim level, so a 0 % deep level cannot leave the clock dark during the day.
 #define BACKLIGHT_FULL_PCT 100
 #define BACKLIGHT_DIM_PCT 20
 #define BACKLIGHT_DEEP_PCT 5
@@ -97,9 +101,13 @@
 
 // ================================= WiFi ====================================
 
-// Optional WiFi for the clock time sync and for the setup web server
-// (uncomment and fill in). An empty SSID keeps the radio off, and the setup
-// server then refuses to start: it needs an address to be reachable at.
+// WiFi is normally set on the setup page and stored in NVS. The two macros
+// exist for one case only: a board that has never been on a network, where
+// the page cannot be reached yet. Fill them in for that first boot, then
+// blank them again - otherwise a password ends up in git.
+//
+// An empty SSID keeps the radio off, and the setup server then refuses to
+// start: it needs an address to be reachable at.
 // #define WIFI_SSID "your-ssid"
 // #define WIFI_PASSWORD "your-password"
 
@@ -130,12 +138,10 @@
 // page runs over HTTPS with a self-signed certificate, so the browser warns
 // on the first visit - that is expected on a device without a domain.
 //
-// The password is empty by default, which switches authentication off and
-// leaves the page open inside the local network. Set one before the box
-// leaves the living room table. Both values can also be changed later from
-// the page itself.
-#define WEB_USER "admin"
-#define WEB_PASSWORD ""
+// User and password are set on the page itself and stored in NVS; they are
+// deliberately not part of this file. Until one is saved the page logs in as
+// "admin" without a password, so set one before the box leaves the living
+// room table.
 
 // Minutes without a request before the server shuts itself down again.
 #define WEB_IDLE_TIMEOUT_MIN 15
@@ -143,10 +149,8 @@
 // ================================ Weather ==================================
 
 // OpenWeather key for the weather mode, free of charge at
-// https://openweathermap.org/api. This value is only the default: the setup
-// page writes the key into NVS, and that one wins. The page never shows the
-// stored key again, so it is write-only there.
-#define WEATHER_API_KEY ""
+// https://openweathermap.org/api. It is typed in on the setup page, stored in
+// NVS and never shown again (write-only), so it does not belong in this file.
 
 // Position the forecast is fetched for, in decimal degrees (WGS84). The
 // weather mode asks OpenWeather directly by coordinate; the city name query
