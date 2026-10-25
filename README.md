@@ -72,6 +72,7 @@ fallbacks in that file. Available macros:
 | --- | --- | --- |
 | `SLIDE_INTERVAL_MS` | `10000` | time per slide in milliseconds |
 | `SLIDE_DIR` | `/slides` | directory on the SD card |
+| `SLIDE_FADE_MS` | `0` | crossfade between two images in ms (0 = hard cut) |
 | `LCD_SPI_HZ` | `40000000` | panel SPI clock |
 | `AUDIO_VOLUME` | `60` | speaker volume (0-100) |
 | `BACKLIGHT_FULL_PCT` | `100` | brightness while active (percent) |

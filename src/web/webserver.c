@@ -81,6 +81,10 @@ static const char index_html[] =
     "<small id='slide_interval_ms.def'></small></label>"
     "<input name='slide_interval_ms' id='slide_interval_ms' type='number' min='1'"
     " max='3600' data-scale='1000'></div>"
+    "<div><label for='slide_fade_ms'>Crossfade (ms, 0 = hard cut) "
+    "<small id='slide_fade_ms.def'></small></label>"
+    "<input name='slide_fade_ms' id='slide_fade_ms' type='number' min='0'"
+    " max='2000' step='50'></div>"
     "<div><label for='backlight_full_pct'>Backlight full (%) "
     "<small id='backlight_full_pct.def'></small></label>"
     "<input name='backlight_full_pct' id='backlight_full_pct' type='number'"
@@ -256,6 +260,7 @@ static const field_t FIELDS[] = {
     FIELD(wifi_password, F_STR, 65, 0, 0),
     FIELD(slide_dir, F_STR, 32, 0, 0),
     FIELD(slide_interval_ms, F_U32, 0, 1000, 3600000),
+    FIELD(slide_fade_ms, F_U16, 0, 0, 2000),
     FIELD(backlight_full_pct, F_U8, 0, 10, 100),
     FIELD(backlight_dim_pct, F_U8, 0, 0, 100),
     FIELD(backlight_deep_pct, F_U8, 0, 0, 100),

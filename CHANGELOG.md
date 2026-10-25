@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Optional crossfade between two images (`SLIDE_FADE_MS`, default 0): the next
+  image is decoded into a PSRAM frame and mixed into the panel band by band
+  while the old one stays on screen. Needs the 8 MB PSRAM of the board, which
+  the build now enables, plus ~11 kB flash and a 7.7 kB band buffer. One
+  transition costs about half a second of SPI traffic.
 - Hold the CPU speed lock only around the image work (`SLIDE_PM_LOW_POWER`), so
   the power manager can drop the clock between two images.
 - Optional automatic light sleep (`PM_LIGHT_SLEEP`, off by default) between
