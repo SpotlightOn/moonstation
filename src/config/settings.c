@@ -1,6 +1,7 @@
 #include "settings.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
 #include "nvs.h"
@@ -60,6 +61,11 @@
 #define NTP_DAILY_SYNC_HOUR 4
 #endif
 
+// Credentials are not part of the shipped template: WiFi, the page login and
+// the weather key are typed in on the setup page and stored in NVS. These
+// fallbacks only keep a build without config.h compiling, and they are what
+// an unconfigured device starts with (empty WiFi = radio stays off, the page
+// logs in as "admin" without a password).
 #ifndef WIFI_SSID
 #define WIFI_SSID ""
 #endif
@@ -99,11 +105,14 @@
 #define AUDIO_VOLUME 60
 #endif
 
+// Factory login. The setup page replaces it on the first visit: as long as
+// these values are active it serves nothing but the form that sets a new one.
+// No credential belongs in config.h, so neither macro is in the template.
 #ifndef WEB_USER
 #define WEB_USER "admin"
 #endif
 #ifndef WEB_PASSWORD
-#define WEB_PASSWORD ""
+#define WEB_PASSWORD "admin"
 #endif
 #ifndef WEB_IDLE_TIMEOUT_MIN
 #define WEB_IDLE_TIMEOUT_MIN 15
@@ -113,6 +122,28 @@
 #define LCD_SPI_HZ 40000000
 #endif
 
+// Weather mode: OpenWeather key, position and refresh interval. The key is
+// write-only on the setup page and lives in NVS; this fallback is empty and
+// only keeps the build compiling. The coordinates are stringified because
+// they end up in the request URL.
+#ifndef WEATHER_API_KEY
+#define WEATHER_API_KEY ""
+#endif
+#ifndef WEATHER_LAT
+#define WEATHER_LAT 52.5200
+#endif
+#ifndef WEATHER_LON
+#define WEATHER_LON 13.4050
+#endif
+#ifndef WEATHER_REFRESH_MIN
+#define WEATHER_REFRESH_MIN 20
+#endif
+
+#define SETTINGS_STR_(x) #x
+#define SETTINGS_STR(x) SETTINGS_STR_(x)
+#define WEATHER_LAT_DEFAULT SETTINGS_STR(WEATHER_LAT)
+#define WEATHER_LON_DEFAULT SETTINGS_STR(WEATHER_LON)
+
 #define TZ_STD_OFFSET_MIN \
     ((int16_t)(TIMEZONE_STD_OFFSET_HOURS * 60 + \
                (TIMEZONE_STD_OFFSET_HOURS >= 0 ? 0.5 : -0.5)))
@@ -121,17 +152,10 @@ static const char *TAG = "settings";
 static const char *NVS_NAMESPACE = "settings";
 static const char *NVS_KEY = "config";
 
-// Stored as one versioned blob: bump it whenever the struct layout changes,
-// so an old blob falls back to the defaults instead of reading garbage. The
-// loader still takes the version before that, as long as nothing but appended
-// fields changed - see settings_init().
-#define SETTINGS_VERSION 4
-
-// A version 3 blob ends right before slide_fade_ms; version 2 ends before the
-// deep sleep switch. Both were the same length as everything up to that
-// member, which is what identifies them.
-#define SETTINGS_V3_BLOB_LEN \
-    (sizeof(uint32_t) + offsetof(settings_t, slide_fade_ms))
+// Stored as one versioned blob: bump it whenever the struct layout changes.
+// The loader copies whatever length is stored over the defaults, so appended
+// fields read as their build-time value instead of zero - see settings_init().
+#define SETTINGS_VERSION 5
 
 typedef struct {
     uint32_t version;
@@ -171,6 +195,10 @@ void settings_defaults_into(settings_t *out)
         .web_user = WEB_USER,
         .web_password = WEB_PASSWORD,
         .web_idle_timeout_min = WEB_IDLE_TIMEOUT_MIN,
+        .weather_api_key = WEATHER_API_KEY,
+        .weather_lat = WEATHER_LAT_DEFAULT,
+        .weather_lon = WEATHER_LON_DEFAULT,
+        .weather_refresh_min = WEATHER_REFRESH_MIN,
     };
     *out = d;
 }
@@ -182,6 +210,17 @@ void settings_defaults(void)
 
 // Keeps a broken or hand edited store from taking the firmware down: values
 // are clamped to what the code can work with.
+// A coordinate has to survive strtod() unchanged and stay inside the valid
+// range; anything else falls back to the build-time value.
+static void sanitize_coord(char *s, size_t cap, double lo, double hi, const char *dflt)
+{
+    char *end = NULL;
+    double v = strtod(s, &end);
+    if (s[0] == '\0' || end == s || *end != '\0' || v < lo || v > hi) {
+        snprintf(s, cap, "%s", dflt);
+    }
+}
+
 static void sanitize(void)
 {
     if (settings.slide_interval_ms < 1000) settings.slide_interval_ms = 1000;
@@ -217,10 +256,26 @@ static void sanitize(void)
     if (settings.web_user[0] == '\0') {
         snprintf(settings.web_user, sizeof(settings.web_user), "admin");
     }
+    // The page is never left without a login: an empty password would hand the
+    // box to everyone in the local network. A stored empty value falls back to
+    // the factory one, which forces the change form on the next visit.
+    if (settings.web_password[0] == '\0') {
+        snprintf(settings.web_password, sizeof(settings.web_password), "%s",
+                 WEB_PASSWORD);
+    }
+    if (settings.web_password[0] == '\0') {
+        snprintf(settings.web_password, sizeof(settings.web_password), "admin");
+    }
     // Below one minute the server would shut down while the page is open.
     if (settings.web_idle_timeout_min < 1) settings.web_idle_timeout_min = 1;
     if (settings.clock_deep_sleep_enable > 1) settings.clock_deep_sleep_enable = 1;
     if (settings.slide_fade_ms > 2000) settings.slide_fade_ms = 2000;
+    if (settings.weather_refresh_min < 5) settings.weather_refresh_min = 5;
+    if (settings.weather_refresh_min > 1440) settings.weather_refresh_min = 1440;
+    sanitize_coord(settings.weather_lat, sizeof(settings.weather_lat), -90.0, 90.0,
+                   WEATHER_LAT_DEFAULT);
+    sanitize_coord(settings.weather_lon, sizeof(settings.weather_lon), -180.0, 180.0,
+                   WEATHER_LON_DEFAULT);
 }
 
 esp_err_t settings_init(void)
@@ -234,21 +289,15 @@ esp_err_t settings_init(void)
         size_t len = sizeof(blob);
         esp_err_t err = nvs_get_blob(handle, NVS_KEY, &blob, &len);
         nvs_close(handle);
-        bool current = err == ESP_OK && len == sizeof(blob) &&
-                       blob.version == SETTINGS_VERSION;
-        // The two versions before this one are shorter by the appended
-        // members; the rest of the struct lines up, the tail reads as zero.
-        bool legacy = err == ESP_OK && len == SETTINGS_V3_BLOB_LEN &&
-                      (blob.version == SETTINGS_VERSION - 1 ||
-                       blob.version == SETTINGS_VERSION - 2);
-        if (current || legacy) {
-            settings = blob.values;
-            if (legacy) {
-                settings.slide_fade_ms = SLIDE_FADE_MS;
-                if (blob.version == SETTINGS_VERSION - 2) {
-                    settings.clock_deep_sleep_enable = CLOCK_DEEP_SLEEP;
-                }
-            }
+        // A blob from an older firmware is shorter by the members appended
+        // since. Copying only what was stored leaves the rest at the defaults
+        // set above, which is exactly the migration those fields need.
+        const size_t header = offsetof(settings_blob_t, values);
+        if (err == ESP_OK && len > header && len <= sizeof(blob) &&
+            blob.version <= SETTINGS_VERSION) {
+            size_t values_len = len - header;
+            if (values_len > sizeof(settings_t)) values_len = sizeof(settings_t);
+            memcpy(&settings, &blob.values, values_len);
             loaded = true;
         }
     }
@@ -288,18 +337,34 @@ esp_err_t settings_save(void)
 
 esp_err_t settings_reset_defaults(void)
 {
-    // The WiFi credentials belong to this box and were entered by hand, the
-    // build time value for them is a template at best. Everything else goes
-    // back to the configuration the firmware was built with.
+    // The WiFi credentials, the OpenWeather key and the setup login belong to
+    // this box and were entered by hand, the build time values for them are
+    // templates at best. Everything else goes back to the configuration the
+    // firmware was built with.
     char ssid[sizeof(settings.wifi_ssid)];
     char password[sizeof(settings.wifi_password)];
+    char key[sizeof(settings.weather_api_key)];
+    char user[sizeof(settings.web_user)];
+    char login[sizeof(settings.web_password)];
     memcpy(ssid, settings.wifi_ssid, sizeof(ssid));
     memcpy(password, settings.wifi_password, sizeof(password));
+    memcpy(key, settings.weather_api_key, sizeof(key));
+    memcpy(user, settings.web_user, sizeof(user));
+    memcpy(login, settings.web_password, sizeof(login));
 
     settings_defaults();
     memcpy(settings.wifi_ssid, ssid, sizeof(settings.wifi_ssid));
     memcpy(settings.wifi_password, password, sizeof(settings.wifi_password));
+    memcpy(settings.weather_api_key, key, sizeof(settings.weather_api_key));
+    memcpy(settings.web_user, user, sizeof(settings.web_user));
+    memcpy(settings.web_password, login, sizeof(settings.web_password));
 
-    ESP_LOGI(TAG, "settings reset to the defaults, WiFi kept");
+    ESP_LOGI(TAG, "settings reset to the defaults, WiFi, API key and login kept");
     return settings_save();
+}
+
+bool settings_web_login_is_default(void)
+{
+    return settings.web_password[0] == '\0' ||
+           strcmp(settings.web_password, WEB_PASSWORD) == 0;
 }

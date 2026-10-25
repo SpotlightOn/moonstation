@@ -1,4 +1,3 @@
-config.h
 slides/
 .pio/
 *.bin
@@ -9,4 +8,5 @@ sdkconfig.old
 managed_components/
 sdkconfig.*
 src/web/certs.h
+debug-shots/
 WORKX

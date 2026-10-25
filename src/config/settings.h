@@ -13,7 +13,8 @@
 //
 // Scope of the web UI: it may write the WiFi credentials, slide directory and
 // interval, backlight, clock (deep sleep window and switch, NTP), timezone,
-// audio/battery levels and its own login - everything an owner tunes at home.
+// audio/battery levels, the weather key and position, and its own login -
+// everything an owner tunes at home.
 // lcd_spi_hz, battery_sample_count, battery_refresh_sec and
 // wifi_listen_interval stay config.h only: board level, and a wrong value
 // there is not worth a form. Which features are built in stays a compile time
@@ -56,7 +57,9 @@ typedef struct {
     uint8_t audio_volume;
     uint32_t lcd_spi_hz;
 
-    // Setup web server: an empty password leaves the page open in the LAN
+    // Setup web server: the login is always active. A fresh box starts with
+    // the factory login (WEB_USER/WEB_PASSWORD, by default "admin"/"admin"),
+    // and the page only serves the form that replaces it until that happened.
     char web_user[33];
     char web_password[65];
     uint8_t web_idle_timeout_min;   // silence after which it shuts itself down
@@ -70,6 +73,16 @@ typedef struct {
     // Crossfade between two images in milliseconds, 0 cuts hard. Appended
     // last for the same reason; the loader migrates a shorter blob.
     uint16_t slide_fade_ms;
+
+    // Weather mode. Coordinates are kept as strings because they end up in
+    // the request URL verbatim; sanitize() restores the build-time default
+    // when they do not parse as a coordinate. The key is write-only on the
+    // setup page (see webserver.c); an empty one keeps the mode on its "not
+    // configured" screen.
+    char weather_api_key[73];
+    char weather_lat[12];
+    char weather_lon[12];
+    uint16_t weather_refresh_min; // minutes between two OpenWeather requests
 } settings_t;
 
 extern settings_t settings;
@@ -88,9 +101,14 @@ void settings_defaults_into(settings_t *out);
 // Reloads the build-time defaults into the live struct without touching NVS.
 void settings_defaults(void);
 
-// Stores the build-time defaults again, keeping the WiFi credentials of this
-// box: those were typed in here, the config.h value is only a template. This
-// is what the setup page's "Reset to default" button calls.
+// Stores the build-time defaults again, keeping what belongs to this box:
+// the WiFi credentials, the OpenWeather key and the setup login. This is what
+// the setup page's "Reset to default" button calls.
 esp_err_t settings_reset_defaults(void);
+
+// True while the login is still the factory one from WEB_USER/WEB_PASSWORD.
+// The setup page then shows only the form that replaces it and refuses every
+// other change, so the default password cannot be used to configure the box.
+bool settings_web_login_is_default(void);
 
 #endif // SETTINGS_H

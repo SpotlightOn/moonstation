@@ -7,20 +7,23 @@ Briefing for coding agents working in this repository.
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240 round
 display), built with PlatformIO. Features: an endless slideshow of 240x240 JPEG
 images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
-by a long press on the touch screen, PWM backlight dimming, and audio feedback.
-Touch and the built-in speaker must be functional.
+by a long press on the touch screen, an optional weather mode (OpenWeather,
+current conditions and a 24-hour forecast, tap to flip pages), PWM backlight
+dimming, and audio feedback. Touch and the built-in speaker must be functional.
+A box without WiFi credentials opens its own access point (Moonstation-XXXX,
+192.168.4.1) and serves the setup page there, so the first setup needs no cable.
 
 ## Hard rules
 
 1. English only in code, identifiers, comments, serial output, on-screen text and
    commit messages.
-2. Never read, edit, grep or cat `config.h` in the project root. It holds local
-   settings and is git-ignored. Work with `config.h.example` only and drive every
-   new setting through a macro there plus an `#ifndef` fallback in
-   `src/config/settings.c`; that file and `src/config/features.h` are the only
-   ones that include `config.h`.
+2. `config.h` is tracked and may be read. It must never contain a credential:
+   WiFi, the setup-page login and the weather key are typed in on the setup page
+   and live in NVS. Add every new setting as a macro in `config.h.example` plus
+   an `#ifndef` fallback in `src/config/settings.c`; that file and
+   `src/config/features.h` are the only ones that include `config.h`.
    `platformio.ini` adds the project root to the include path (`-I.`).
-3. Never commit `config.h`, `*.bin` or `.pio/`.
+3. Never commit a credential, `*.bin` or `.pio/`.
 4. No absolute paths or home directory references in source, comments, docs or
    commit messages.
 5. Leave binary and data assets alone.
@@ -36,14 +39,17 @@ Touch and the built-in speaker must be functional.
 | `src/main.c` | Entry point (`app_main`) |
 | `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`) |
 | `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `status`, `pins.h` |
-| `src/clock/` | Clock mode and time sync (`clock.c/.h`, generated `font.h`) |
+| `src/ui/` | Frame buffer drawing helpers (`draw.c/.h`) and the generated fonts (`font.h`) |
+| `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
+| `src/weather/` | Weather mode: request, NVS cache, rendering (`weather.c/.h`) and icons (`weather_icons.c/.h`) |
 | `src/web/` | Setup web server (`webserver.c/.h`); `certs.h` is generated and git-ignored |
-| `scripts/generate_font.py` | Regenerates `src/clock/font.h` from the TTF |
+| `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |
+| `scripts/fonts/` | Source TTFs of both bitmap fonts (DejaVu Sans Bold, Roboto Medium) plus licenses |
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
 | `src/idf_component.yml` | Managed ESP-IDF dependencies |
 | `config.h.example` | Tracked config template |
-| `config.h` | Local settings, git-ignored, off limits |
+| `config.h` | Tracked local board settings, never a credential |
 | `PLAN.md` | Implementation plan |
 
 ## Build, flash, monitor
@@ -94,4 +100,4 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
 - Work on a `feature/*` branch; never commit to `main` directly.
 - One logical change per commit; short English commit message.
 - Keep README/AGENTS in sync with build steps, pins and config macros.
-- Never commit `config.h` or `.pio/`.
+- Never commit a credential or `.pio/`.

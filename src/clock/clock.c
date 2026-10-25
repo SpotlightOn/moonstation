@@ -1,8 +1,8 @@
 #include "clock.h"
 #include "battery.h"
 #include "display.h"
+#include "draw.h"
 #include "status.h"
-#include "font.h"
 #include "esp_log.h"
 #include "esp_err.h"
 #include "esp_sleep.h"
@@ -57,7 +57,7 @@ void clock_apply_timezone(void)
 // byte swaps them once on the way into the frame buffer, see RGB565_SWAP
 // in display.h, so callers always work with natural color values.
 #define COLOR_BATT_LOW 0xF800      // red
-#define COLOR_BATT_CHARGING 0x01E0 // dark green, so the icon does not glare
+#define COLOR_BATT_CHARGING 0x0320 // RGB565, green channel 25/63 (~101/255)
 #define COLOR_BATT_NORMAL 0xFFFF   // white
 #define COLOR_IP 0xAD55             // mid grey, the address must not glare
 #define COLOR_WHITE 0xFFFF         // white
@@ -224,31 +224,6 @@ esp_err_t clock_init(void)
     return ESP_OK;
 }
 
-static void draw_text(const char *s, int x, int y, const unsigned char (*glyphs)[54],
-                      int gw, int gh, uint16_t color, uint16_t *fb) {
-    uint16_t px = RGB565_SWAP(color); // font.h writes pixels as given
-    int cx = x;
-    for (const char *p = s; *p; p++) {
-        int idx = font_date_index(*p);
-        if (idx >= 0) {
-            font_draw_char(glyphs[idx], gw, gh, cx, y, px, fb);
-        }
-        cx += gw;
-    }
-}
-
-static void draw_time_text(const char *s, int x, int y, uint16_t color, uint16_t *fb) {
-    uint16_t px = RGB565_SWAP(color);
-    int cx = x;
-    for (const char *p = s; *p; p++) {
-        int idx = font_time_index(*p);
-        if (idx >= 0) {
-            font_draw_char(font_time_glyphs[idx], font_time_W, font_time_H, cx, y, px, fb);
-        }
-        cx += font_time_W;
-    }
-}
-
 // Address of the setup page, drawn in the row of the battery indicator: two
 // lines, because the round display cuts off the outer characters further
 // down and a single line of fourteen digits would not fit there anymore.
@@ -261,29 +236,14 @@ static void draw_setup_ip(const char *ip, int y, uint16_t *fb) {
         if (ip[i] == '.' && len - (i + 1) <= 11) split = i + 1;
     }
     snprintf(line, sizeof(line), "%.*s", split ? split : len, ip);
-    draw_text(line, (240 - (int)strlen(line) * font_date_W) / 2, y,
-              font_date_glyphs, font_date_W, font_date_H, COLOR_IP, fb);
+    draw_text_center(line, y, 0, COLOR_IP, fb);
     if (split > 0) {
         snprintf(line, sizeof(line), "%s", ip + split);
-        draw_text(line, (240 - (int)strlen(line) * font_date_W) / 2, y + font_date_H,
-                  font_date_glyphs, font_date_W, font_date_H, COLOR_IP, fb);
+        draw_text_center(line, y + draw_text_height(), 0, COLOR_IP, fb);
     }
 }
 
 #if CLOCK_SHOW_BATTERY
-// Solid rectangle clipped to the screen. color is plain RGB565 and is byte
-// swapped for the panel on the way into the buffer.
-static void fill_rect(int x, int y, int w, int h, uint16_t color, uint16_t *fb) {
-    uint16_t px = RGB565_SWAP(color);
-    for (int row = y; row < y + h; row++) {
-        if (row < 0 || row >= 240) continue;
-        for (int col = x; col < x + w; col++) {
-            if (col < 0 || col >= 240) continue;
-            fb[row * 240 + col] = px;
-        }
-    }
-}
-
 // Upward pointing arrow shown left of the icon while the battery charges:
 // a triangular head followed by a short stem, sized from the icon macros.
 static void draw_charge_arrow(int x, int y, uint16_t color, uint16_t *fb) {
@@ -329,19 +289,18 @@ static void draw_battery_row(int x, int y, uint16_t *fb) {
     int gap = 6;
     int arrow_w = charging ? BATT_ARROW_W + 4 : 0;
     int icon_w = BATT_ICON_W + BATT_NOB_W;
-    int total = arrow_w + icon_w + gap + (int)strlen(pbuf) * font_date_W;
+    int total = arrow_w + icon_w + gap + draw_text_width(pbuf);
     int gx = (240 - total) / 2 + x;
 
     // The icon is shorter than the text, so center it on the text row.
-    int iy = y + (font_date_H - BATT_ICON_H) / 2;
+    int iy = y + (draw_text_height() - BATT_ICON_H) / 2;
 
     if (charging) {
         draw_charge_arrow(gx, iy + (BATT_ICON_H - BATT_ARROW_H) / 2, color, fb);
         gx += arrow_w;
     }
     draw_battery_icon(gx, iy, level, color, fb);
-    draw_text(pbuf, gx + icon_w + gap, y, font_date_glyphs,
-              font_date_W, font_date_H, color, fb);
+    draw_text(pbuf, gx + icon_w + gap, y, color, fb);
 }
 #endif // CLOCK_SHOW_BATTERY
 
@@ -354,29 +313,26 @@ void clock_compose(uint16_t *fb)
 
     char tbuf[8];
     snprintf(tbuf, sizeof(tbuf), "%02d:%02d", tm.tm_hour, tm.tm_min);
-    int tw = strlen(tbuf) * font_time_W;
+    int tw = draw_time_width(tbuf);
     draw_time_text(tbuf, (240 - tw) / 2, 70, COLOR_WHITE, fb);
 
-    char wbuf[8];
     char dbuf[64];
     static const char *wdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    snprintf(dbuf, sizeof(dbuf), "%02d.%02d.%04d", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
-    snprintf(wbuf, sizeof(wbuf), "%s", wdays[tm.tm_wday]);
+    // Weekday and date share one row: the proportional body font leaves enough
+    // room for both, and the battery moves up into the space of the old row.
+    snprintf(dbuf, sizeof(dbuf), "%s, %02d.%02d.%04d", wdays[tm.tm_wday],
+             tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
 
     int jx = (tm.tm_min % 3) - 1;
     int jy = (tm.tm_min / 3 % 3) - 1;
 
-    int y = 70 + font_time_H + 6 + jy;
-    int dw = strlen(dbuf) * font_date_W;
-    draw_text(dbuf, (240 - dw) / 2 + jx, y, font_date_glyphs,
-              font_date_W, font_date_H, COLOR_WHITE, fb);
-    y += font_date_H + 4;
-    int ww = strlen(wbuf) * font_date_W;
-    draw_text(wbuf, (240 - ww) / 2 + jx, y, font_date_glyphs,
-              font_date_W, font_date_H, COLOR_WHITE, fb);
+    int y = 70 + draw_time_height() + 6 + jy;
+    draw_text_center(dbuf, y, jx, COLOR_WHITE, fb);
 
 #if CLOCK_SHOW_BATTERY
-    y += font_date_H + 4;
+    // The row sits clearly below the date, closer to the lower edge of the
+    // round panel: with the old 4 px gap the shift was too small to notice.
+    y += draw_text_height() + 12;
     // The address of the setup page replaces the battery row while the
     // server runs; both want the same row and the address matters more.
     if (ui_status.ip[0] == '\0') draw_battery_row(jx, y + jy, fb);

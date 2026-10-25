@@ -23,6 +23,17 @@ void net_wifi_down(void);
 // True while the station interface holds an address.
 bool net_wifi_is_up(void);
 
+// Setup access point for a box that has no WiFi credentials yet, or whose
+// network cannot be reached: the setup page has to be reachable without a
+// router. The AP is open on purpose - it carries nothing but the setup page,
+// which forces a new login before it shows anything else, and it exists only
+// during the first setup. Name: "Moonstation-XXXX" from the last two MAC
+// bytes, address 192.168.4.1. Returns false when the radio cannot start it.
+bool net_ap_start(void);
+void net_ap_stop(void);
+bool net_ap_is_up(void);
+const char *net_ap_ssid(void);
+
 // Keeps the radio up across net_wifi_down() for as long as a counter of
 // holders is above zero (the setup server holds it while it listens).
 void net_wifi_hold(void);

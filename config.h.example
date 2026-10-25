@@ -1,15 +1,17 @@
-// Local configuration of this build.
+// Configuration template of this build.
 //
 // Copy this file to config.h in the project root and adjust it. config.h is
-// git-ignored and must never be committed. Every value below is optional:
-// each one has a built-in default (the #ifndef fallbacks in
-// src/config/settings.c), so a build without config.h still works.
+// tracked in git, so it must never hold a secret: WiFi credentials, the login
+// of the setup page and the weather key are typed in on the setup page and
+// live in NVS only. Every value below is optional: each one has a built-in
+// default (the #ifndef fallbacks in src/config/settings.c), so a build
+// without config.h still works.
 //
 // Where a value lives:
 //   config.h    compile time: which features are built in, board level
 //               wiring, and the defaults for the runtime settings
-//   NVS / web   runtime values the owner tunes at home; they override the
-//               defaults from here, see "Setup web server" below
+//   NVS / web   runtime values the owner tunes at home, including every
+//               credential; they override the defaults from here
 
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -65,7 +67,9 @@
 #define CLOCK_DEEP_SLEEP_TO 7
 
 // Backlight auto-dimming: levels in percent, delays in seconds. The dim
-// level is only reached while nothing is touched; the deep level follows.
+// level is only reached while nothing is touched. The deep level follows it,
+// but only inside the night window: outside of it the display stays at the
+// dim level, so a 0 % deep level cannot leave the clock dark during the day.
 #define BACKLIGHT_FULL_PCT 100
 #define BACKLIGHT_DIM_PCT 20
 #define BACKLIGHT_DEEP_PCT 5
@@ -97,9 +101,14 @@
 
 // ================================= WiFi ====================================
 
-// Optional WiFi for the clock time sync and for the setup web server
-// (uncomment and fill in). An empty SSID keeps the radio off, and the setup
-// server then refuses to start: it needs an address to be reachable at.
+// WiFi is normally set on the setup page and stored in NVS. A board without
+// credentials opens its own access point on the first boot (Moonstation-XXXX,
+// https://192.168.4.1), so this is only an emergency hatch for a box whose
+// radio cannot run the access point. Filling it in writes a password into git,
+// so blank it again after the first boot - NVS keeps the value.
+//
+// An empty SSID means "not configured": the setup server then starts its own
+// access point instead of joining a network.
 // #define WIFI_SSID "your-ssid"
 // #define WIFI_PASSWORD "your-password"
 
@@ -126,35 +135,46 @@
 
 // ============================ Setup web server =============================
 
-// Login of the configuration page, opened with the 5 s touch gesture. The
-// page runs over HTTPS with a self-signed certificate, so the browser warns
-// on the first visit - that is expected on a device without a domain.
+// Login of the configuration page, opened with the 5 s touch gesture or, on a
+// box without WiFi, by the access point it opens at boot. The page runs over
+// HTTPS with a self-signed certificate, so the browser warns on the first
+// visit - that is expected on a device without a domain.
 //
-// The password is empty by default, which switches authentication off and
-// leaves the page open inside the local network. Set one before the box
-// leaves the living room table. Both values can also be changed later from
-// the page itself.
-#define WEB_USER "admin"
-#define WEB_PASSWORD ""
+// User and password are set on the page itself and stored in NVS; they are
+// deliberately not part of this file. The box ships with "admin" / "admin"
+// and serves nothing but the form that replaces that login until it happened.
 
 // Minutes without a request before the server shuts itself down again.
 #define WEB_IDLE_TIMEOUT_MIN 15
 
 // ================================ Weather ==================================
 
-// OpenWeatherMap API key, free of charge at https://openweathermap.org/api.
-// The key below is the public one shipped with the vendor firmware. It is
-// shared by every buyer of this board and often rate limited, replace it.
-#define WEATHER_API_KEY ""
+// OpenWeather key for the weather mode, free of charge at
+// https://openweathermap.org/api. It is typed in on the setup page, stored in
+// NVS and never shown again (write-only), so it does not belong in this file.
 
-// 1 = detect the city from the public IP address (ip-api.com)
-// 0 = use CITY_CODE below
-#define CITY_AUTO_DETECT 1
+// Position the forecast is fetched for, in decimal degrees (WGS84). The
+// weather mode asks OpenWeather directly by coordinate; the city name query
+// is deprecated. Both values can also be changed on the setup page.
+#define WEATHER_LAT 52.5200
+#define WEATHER_LON 13.4050
 
-// City name for OpenWeatherMap when CITY_AUTO_DETECT is 0, for example
-// "Berlin,de" or "Shanghai,cn". The numeric ids in CityCode/citycode.json
-// belong to a Chinese weather service and do not work with the q= query this
-// sketch sends.
-#define CITY_CODE "101020100"
+// Minutes between two OpenWeather requests (5..1440). One refresh costs two
+// requests, which leaves the free tier of 1000 calls per day untouched even
+// at the shortest interval.
+#define WEATHER_REFRESH_MIN 20
+
+// ================================== Debug ==================================
+
+// Write the frame after every mode switch as a 240x240 BMP to
+// /sdcard/screens, so a layout problem can be checked without a photo of the
+// panel. Turn it off again after debugging: the UI waits for the card while
+// the file is written.
+#define SCREENSHOT_ENABLE 0
+
+// Additionally print each frame as hex on the console. Then a serial capture
+// is enough to rebuild the image, no card reader needed. Costs about 250 kB of
+// console output per frame and needs SCREENSHOT_ENABLE.
+#define SCREENSHOT_SERIAL 0
 
 #endif // CONFIG_H
