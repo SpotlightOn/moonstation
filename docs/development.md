@@ -389,9 +389,24 @@ Commit the resulting `src/clock/font.h` when the font changes.
 - **Static analysis**: cppcheck over `src` (warnings, performance and
   portability checks, any finding fails the run).
 - **Build firmware**: `pio run` on a clean runner with `config.h` created from
-  `config.h.example`, the PlatformIO toolchain cached. `firmware.bin`,
-  `bootloader.bin` and `partition-table.bin` are uploaded as a workflow
-  artifact.
+  `config.h.example`. `firmware.bin`, `bootloader.bin` and `partitions.bin` are
+  uploaded as a workflow artifact.
+
+Both workflows pin the PlatformIO Core version (currently `6.2.0`) and keep two
+separate caches, because they age at very different rates:
+
+| Cache | Contents | Key |
+| --- | --- | --- |
+| `pio-toolchain-*` | `~/.platformio/packages`, `~/.platformio/platforms` | platform pin from `platformio.ini` |
+| `pio-pip-*` | pip wheel cache | PlatformIO Core version |
+
+The toolchain cache is the expensive one (about 1.3 GB), so it must not be
+invalidated by unrelated edits: a change to `src/idf_component.yml` or
+`dependencies.lock` only touches `managed_components/` inside the project, so
+those files are deliberately kept out of the key. The download archives in
+`~/.platformio/.cache` are not cached either; they are already compressed and
+double the archive size without helping a cache hit. Bump `CACHE_VERSION` in
+both workflow files when the cache layout itself changes.
 
 `.github/workflows/release.yml` runs on version tags (`v*`), builds the same
 way, merges the images into a single flashable binary and publishes a GitHub

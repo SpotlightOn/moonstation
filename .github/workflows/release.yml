@@ -7,10 +7,16 @@ on:
 permissions:
   contents: write
 
+env:
+  # Keep in sync with ci.yml.
+  CACHE_VERSION: v1
+  PLATFORMIO_VERSION: "6.2.0"
+
 jobs:
   release:
     name: Build and publish release
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -18,20 +24,28 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache PlatformIO
+      # Same split as ci.yml: toolchain packages keyed on the platform pin,
+      # pip wheels on the PlatformIO version.
+      - name: Cache PlatformIO toolchain
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/pip
-            ~/.platformio/.cache
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'dependencies.lock', 'src/idf_component.yml') }}
+          key: pio-toolchain-${{ env.CACHE_VERSION }}-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: |
-            ${{ runner.os }}-pio-
+            pio-toolchain-${{ env.CACHE_VERSION }}-${{ runner.os }}-
+
+      - name: Cache pip wheels
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pio-pip-${{ runner.os }}-${{ env.PLATFORMIO_VERSION }}
+          restore-keys: |
+            pio-pip-${{ runner.os }}-
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        run: pip install "platformio==${PLATFORMIO_VERSION}"
 
       - name: Prepare config.h
         run: cp config.h.example config.h

@@ -13,17 +13,24 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Bump to drop the PlatformIO caches after a toolchain layout change.
+  CACHE_VERSION: v1
+  # Pinned so the pip wheel cache stays valid and CI stays reproducible.
+  PLATFORMIO_VERSION: "6.2.0"
+
 jobs:
   check:
     name: Static analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
       - name: Install cppcheck
         run: |
           sudo apt-get update
-          sudo apt-get install -y cppcheck
+          sudo apt-get install -y --no-install-recommends cppcheck
 
       - name: Prepare config.h
         run: cp config.h.example config.h
@@ -44,6 +51,7 @@ jobs:
   build:
     name: Build firmware
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -51,20 +59,35 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache PlatformIO
+      # Toolchain and platform packages only change when the platform pin in
+      # platformio.ini moves, so they get their own cache instead of sharing a
+      # key with the pip cache. A key per file is a cache hit in almost every
+      # run, which matters because this archive is the slowest thing to restore.
+      #
+      # ~/.platformio/.cache (the download archives) is left out on purpose:
+      # those are already compressed tarballs, so they roughly double the
+      # archive size, cannot be compressed again, and a cache hit never needs
+      # them. Only a cold run downloads the packages.
+      - name: Cache PlatformIO toolchain
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/pip
-            ~/.platformio/.cache
             ~/.platformio/packages
             ~/.platformio/platforms
-          key: ${{ runner.os }}-pio-${{ hashFiles('platformio.ini', 'dependencies.lock', 'src/idf_component.yml') }}
+          key: pio-toolchain-${{ env.CACHE_VERSION }}-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: |
-            ${{ runner.os }}-pio-
+            pio-toolchain-${{ env.CACHE_VERSION }}-${{ runner.os }}-
+
+      - name: Cache pip wheels
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pio-pip-${{ runner.os }}-${{ env.PLATFORMIO_VERSION }}
+          restore-keys: |
+            pio-pip-${{ runner.os }}-
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        run: pip install "platformio==${PLATFORMIO_VERSION}"
 
       - name: Prepare config.h
         run: cp config.h.example config.h
