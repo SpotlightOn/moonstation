@@ -26,6 +26,7 @@ moonstation/
 │   │   ├── audio.c/.h
 │   │   ├── battery.c/.h
 │   │   ├── net.c/.h
+│   │   ├── power.c/.h
 │   │   ├── status.c/.h
 │   │   └── pins.h
 │   ├── clock/
@@ -176,16 +177,32 @@ The build runs the CPU at 80 MHz with dynamic frequency scaling enabled
 own: `PM_MIN_CPU_MHZ` (`features.h`, default 10) is the lowest step the chip
 offers outside light sleep (40 MHz crystal / 4). The frequency only stays at 80
 while a task runs or a driver holds an APB lock; the power manager takes the
-minimum as soon as every core is in the idle task. Two pieces of the firmware
-talk to the power manager:
+minimum as soon as every core is in the idle task.
+
+`core/power.c` owns the policy: `power_init()` runs once at boot and applies a
+profile, modules request and release profiles instead of calling
+`esp_pm_configure()` themselves. Requests are refcounted and the highest one
+wins, so the setup page can raise the ceiling while the slideshow keeps its own
+floor:
+
+- **`POWER_PROFILE_ACTIVE`** (always held): 80 MHz ceiling, `PM_MIN_CPU_MHZ`
+  floor.
+- **`POWER_PROFILE_BOOST`** (the setup web server while it runs): 240 MHz
+  ceiling plus an `ESP_PM_CPU_FREQ_MAX` lock, because TLS is the only workload
+  that gains noticeably from it and the page should not fall back between two
+  requests. `web_start()` requests it, `stop_server()` and every failure path
+  release it.
+
+The old code configured the power manager in two places (slideshow and web
+server) and could overwrite itself; both now go through the same module.
+
+Two more pieces talk to the power manager:
 
 - **`SLIDE_PM_LOW_POWER`** (default on, `features.h`) keeps the `CPU_FREQ_MAX`
   lock only around the image work: `show_slide()` and the SD card init/scan take
-  it, everything else in the slide modes runs without it. The lock is what makes
-  the difference here, because the SD card path takes no power management lock
-  of its own - the SDMMC driver would happily let a light sleep cut a transfer
-  in half. With the switch off the slide modes hold the lock for their whole
-  lifetime, which is what older versions did.
+  it, everything else in the slide modes runs without it. The lock keeps the
+  clock up while a transfer is in flight. With the switch off the slide modes
+  hold the lock for their whole lifetime, which is what older versions did.
 - **`PM_LIGHT_SLEEP`** (default off, `features.h`) additionally enables
   automatic light sleep, so the chip sleeps whenever no lock is held: between
   two images and between two clock minutes. The backlight PWM runs from
@@ -200,8 +217,11 @@ over the ESP32-S3 **USB Serial/JTAG** peripheral, which dies in light sleep and
 takes the port with it (the kernel then logs `device not accepting address,
 error -71` in a loop). The firmware keeps an `ESP_PM_NO_LIGHT_SLEEP` lock while
 `usb_serial_jtag_is_connected()` reports a host, so a plugged-in board stays
-awake, but that path is not proven on hardware. Enable the switch for a board
-that runs unplugged.
+awake, but that path is not proven on hardware. Plugging the cable in later does
+not wake the chip either - USB is no wake source in light sleep - so a board that
+went to sleep unplugged needs the reset button before it can be flashed again.
+Enable the switch for a board that runs unplugged and keep that button
+reachable.
 
 ## Display and backlight
 

@@ -38,7 +38,7 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | `src/CMakeLists.txt` | Main component registration |
 | `src/main.c` | Entry point (`app_main`) |
 | `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`) |
-| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `status`, `pins.h` |
+| `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `power`, `status`, `pins.h` |
 | `src/ui/` | Frame buffer drawing helpers (`draw.c/.h`) and the generated fonts (`font.h`) |
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |

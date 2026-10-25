@@ -3,6 +3,7 @@ idf_component_register(
          "config/settings.c"
          "core/display.c" "core/sdcard.c" "core/touch.c" "core/audio.c"
          "core/battery.c" "core/status.c" "core/net.c" "core/screenshot.c"
+         "core/power.c"
          "ui/draw.c"
          "clock/clock.c" "slideshow/slideshow.c"
          "weather/weather.c" "weather/weather_icons.c"

@@ -7,6 +7,10 @@
 - Idle drops to 10 MHz (`PM_MIN_CPU_MHZ`) instead of 40 MHz: the power manager
   is configured once at boot, and only a running task or a driver lock keeps the
   clock up.
+- Clock ceilings live in one place: `src/core/power.c` with the refcounted
+  profiles `ACTIVE` (80 MHz) and `BOOST` (240 MHz while the setup page runs).
+  Modules request a profile instead of reconfiguring the power manager
+  themselves.
 
 ## 0.4.0 - 2026-10-25
 
