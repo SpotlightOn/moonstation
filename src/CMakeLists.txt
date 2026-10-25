@@ -3,9 +3,10 @@ idf_component_register(
          "config/settings.c"
          "core/display.c" "core/sdcard.c" "core/touch.c" "core/audio.c"
          "core/battery.c" "core/status.c" "core/net.c"
+         "ui/draw.c"
          "clock/clock.c" "slideshow/slideshow.c"
          "web/webserver.c"
-    INCLUDE_DIRS "." "config" "core" "clock" "slideshow" "web"
+    INCLUDE_DIRS "." "config" "core" "ui" "clock" "slideshow" "web"
     REQUIRES esp_lcd fatfs esp_timer driver esp_adc esp_wifi esp_event esp_netif
              nvs_flash esp_https_server
 )
