@@ -7,8 +7,9 @@ Briefing for coding agents working in this repository.
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240 round
 display), built with PlatformIO. Features: an endless slideshow of 240x240 JPEG
 images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
-by a long press on the touch screen, PWM backlight dimming, and audio feedback.
-Touch and the built-in speaker must be functional.
+by a long press on the touch screen, an optional weather mode (OpenWeather,
+current conditions and a 24-hour forecast, tap to flip pages), PWM backlight
+dimming, and audio feedback. Touch and the built-in speaker must be functional.
 
 ## Hard rules
 
@@ -36,10 +37,13 @@ Touch and the built-in speaker must be functional.
 | `src/main.c` | Entry point (`app_main`) |
 | `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`) |
 | `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `status`, `pins.h` |
-| `src/clock/` | Clock mode and time sync (`clock.c/.h`, generated `font.h`) |
+| `src/ui/` | Frame buffer drawing helpers (`draw.c/.h`) and the generated fonts (`font.h`) |
+| `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
+| `src/weather/` | Weather mode: request, NVS cache, rendering (`weather.c/.h`) and icons (`weather_icons.c/.h`) |
 | `src/web/` | Setup web server (`webserver.c/.h`); `certs.h` is generated and git-ignored |
-| `scripts/generate_font.py` | Regenerates `src/clock/font.h` from the TTF |
+| `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |
+| `scripts/fonts/` | Source TTFs of both bitmap fonts (DejaVu Sans Bold, Roboto Medium) plus licenses |
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
 | `src/idf_component.yml` | Managed ESP-IDF dependencies |
 | `config.h.example` | Tracked config template |

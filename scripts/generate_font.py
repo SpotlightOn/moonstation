@@ -90,7 +90,11 @@ def make_text_font(path, size, chars):
         bx = x0
         by = ascent + y0
         img = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(img).text((-bx, ascent), ch, font=font, fill=255, anchor="ls")
+        # The image holds the ink box only, so the baseline has to move up by
+        # the box's distance from the line top (-y0). Drawing at `ascent`
+        # instead shifted every glyph down by three rows and cut its bottom
+        # off, which looked like clipped text on the panel.
+        ImageDraw.Draw(img).text((-bx, -y0), ch, font=font, fill=255, anchor="ls")
         glyphs.append((w, h, bx, by, adv, len(blob)))
         blob += img.tobytes()
     return line_h, bytes(blob), glyphs

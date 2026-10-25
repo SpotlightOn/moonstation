@@ -316,19 +316,18 @@ void clock_compose(uint16_t *fb)
     int tw = draw_time_width(tbuf);
     draw_time_text(tbuf, (240 - tw) / 2, 70, COLOR_WHITE, fb);
 
-    char wbuf[8];
     char dbuf[64];
     static const char *wdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-    snprintf(dbuf, sizeof(dbuf), "%02d.%02d.%04d", tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
-    snprintf(wbuf, sizeof(wbuf), "%s", wdays[tm.tm_wday]);
+    // Weekday and date share one row: the proportional body font leaves enough
+    // room for both, and the battery moves up into the space of the old row.
+    snprintf(dbuf, sizeof(dbuf), "%s, %02d.%02d.%04d", wdays[tm.tm_wday],
+             tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
 
     int jx = (tm.tm_min % 3) - 1;
     int jy = (tm.tm_min / 3 % 3) - 1;
 
     int y = 70 + draw_time_height() + 6 + jy;
     draw_text_center(dbuf, y, jx, COLOR_WHITE, fb);
-    y += draw_text_height() + 4;
-    draw_text_center(wbuf, y, jx, COLOR_WHITE, fb);
 
 #if CLOCK_SHOW_BATTERY
     y += draw_text_height() + 4;

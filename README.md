@@ -3,10 +3,12 @@
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
 JPEG images from an SD card and offers a clock mode (HH:MM with date) toggled
-by a long press on the touch screen. Touch input and the built-in speaker are
-supported, and the backlight dims automatically when idle. Holding a finger on
-the display for 5 seconds opens a setup page over HTTPS, where WiFi, timings
-and levels are changed without rebuilding the firmware.
+by a long press on the touch screen. An optional weather mode shows the current
+conditions from OpenWeather and, on a tap, the forecast for the next 24 hours.
+Touch input and the built-in speaker are supported, and the backlight dims
+automatically when idle. Holding a finger on the display for 5 seconds opens a
+setup page over HTTPS, where WiFi, timings, levels and the weather key are
+changed without rebuilding the firmware.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
 
@@ -17,14 +19,18 @@ and levels are changed without rebuilding the firmware.
 - **Setup web UI over HTTPS**: hold a finger still on the display for 5 s; a
   short beep confirms that the box took the gesture, then it serves its own
   setup page with a login. It changes WiFi, slideshow, backlight, sleep window,
-  NTP, timezone, audio and battery at runtime, and a "Reset to default" button
-  restores the firmware defaults (WiFi credentials stay). A red dot on the
-  lower edge shows that it runs, the display shows its address, and it shuts
-  itself down when idle
-- Long press (held over 0.5 s, released) cycles through clock, slideshow and
-  combined clock+slideshow modes (boots into clock mode); only a hold that
-  stays on for the full 5 s goes to the setup page instead, so a quick press
-  can never open it by accident
+  NTP, timezone, audio, battery and the weather key and position at runtime,
+  and a "Reset to default" button restores the firmware defaults (WiFi
+  credentials and the weather key stay). A red dot on the lower edge shows that
+  it runs, the display shows its address, and it shuts itself down when idle
+- Long press (held over 0.5 s, released) cycles through clock, slideshow,
+  combined clock+slideshow and (if built in) weather modes; it boots into clock
+  mode. Only a hold that stays on for the full 5 s goes to the setup page
+  instead, so a quick press can never open it by accident
+- Weather mode (optional, `WEATHER_ENABLE` in `src/config/features.h`): current
+  conditions from OpenWeather with a tap to the next-24-hours forecast, refreshed
+  every 20 minutes by default. The key, the position and the interval are set on
+  the setup page; without a key the mode shows a hint instead of a screen
 - Clock mode shows the time and date, with a small jitter for burn-in
   prevention
 - Battery indicator below the weekday: icon with the charge level, the
@@ -40,7 +46,7 @@ and levels are changed without rebuilding the firmware.
 ## Prerequisites
 
 - PlatformIO (use the bundled venv binary shown below)
-- Python 3 with Pillow (for regenerating the clock font)
+- Python 3 with Pillow (for regenerating the fonts)
 - ImageMagick 7 (`magick`) for preparing slide images
 - OpenSSL (the build generates the self-signed certificate of the setup page)
 
@@ -92,6 +98,10 @@ fallbacks in that file. Available macros:
 | `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
 | `BATTERY_REFRESH_SEC` | `300` | seconds between battery samples |
 | `BATTERY_CHARGING_ACTIVE_HIGH` | `1` | charging input reads high while charging |
+| `WEATHER_API_KEY` | empty | default OpenWeather key, normally set on the setup page |
+| `WEATHER_LAT` | `52.5200` | latitude the forecast is fetched for |
+| `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
+| `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
 
 Optional WiFi settings enable NTP time sync for the clock mode:
 
@@ -110,6 +120,18 @@ With WiFi configured the firmware connects, waits for the first NTP answer
 (up to 10 s) and then switches the radio off again; if no server answers it
 keeps the time it had before. It repeats that at `NTP_DAILY_SYNC_HOUR`, since
 the RTC drifts by seconds per day without a 32.768 kHz crystal.
+
+`WEATHER_ENABLE` in `src/config/features.h` (on by default, `0` removes the
+step) adds the weather mode to the long-press cycle. It shows the current
+conditions from OpenWeather and, after a tap, the next 24 hours in 3-hour
+steps; another tap goes back. The request is made by coordinate in metric
+units, and the last answer is cached in
+NVS, so the mode still shows something after a reboot without WiFi. A refresh
+that fails is retried after 5 minutes, and a reading older than two intervals
+gets a small amber ring at the top of the screen. The API key is write-only on
+the setup page: the page reports only whether one is stored, an empty field
+keeps it and a checkbox erases it. The same applies to the WiFi and setup
+passwords.
 
 With `CLOCK_DEEP_SLEEP` set to `1` the clock mode drops into deep sleep inside
 the local hours of the sleep window (default 23:00 to 07:00). The compile
@@ -172,8 +194,10 @@ as an AI desktop assistant running Xiaozhi.
 - Empty or missing image directory: yellow screen, rescan every 2 seconds
 - Unreadable or corrupt JPEG: skipped, next image shown
 - Touch advances to the next slide immediately
-- Long press cycles clock -> slideshow -> clock+slideshow -> clock; the switch
-  redraws immediately
+- Long press cycles clock -> slideshow -> clock+slideshow -> weather (if built
+  in) -> clock; the switch redraws immediately
+- Weather mode taps flip between current conditions and the 24-hour forecast;
+  the long press still changes the mode
 - Clock mode shows HH:MM with the date below, redrawing only once per minute
   (timer driven, no polling)
 - Battery readings are sampled by a timer every 5 minutes and shown from that
@@ -184,4 +208,4 @@ as an AI desktop assistant running Xiaozhi.
 CI runs cppcheck and a full firmware build on every push to `main` and on pull
 requests; pushing a `v*` tag publishes a GitHub Release with the binaries.
 See [docs/development.md](docs/development.md) for build details, hardware notes,
-configuration, and regeneration of the clock font.
+configuration, and regeneration of the fonts.

@@ -48,4 +48,30 @@
 #define PM_LIGHT_SLEEP 0
 #endif
 
+// Weather mode (1 = on, 0 = off). One adds the fourth mode to the long-press
+// cycle: an OpenWeather screen with the current conditions and, on a tap, the
+// forecast for the next 24 hours. Without an API key the mode shows a hint
+// instead of a forecast, so it costs nothing to leave it on; zero leaves the
+// module out of the cycle and the three existing modes untouched.
+#ifndef WEATHER_ENABLE
+#define WEATHER_ENABLE 1
+#endif
+
+// Frame buffer dump for layout debugging (1 = on, 0 = off). On, the firmware
+// writes the frame after every mode switch as a BMP to /sdcard/screens, so the
+// picture can be looked at on a computer without a camera in front of the
+// panel. Debug only: the SD card is mounted on demand and the UI task blocks
+// while the 170 kB are written, which is also why this stays off by default.
+#ifndef SCREENSHOT_ENABLE
+#define SCREENSHOT_ENABLE 0
+#endif
+
+// Print each dumped frame as hex on the console as well (1 = on, 0 = off), so a
+// serial capture is enough to rebuild the image. Needs SCREENSHOT_ENABLE above
+// and costs about 250 kB of console output per frame. The lines look like
+// "SHOT <name> <first pixel> <four hex digits per pixel>".
+#ifndef SCREENSHOT_SERIAL
+#define SCREENSHOT_SERIAL 0
+#endif
+
 #endif // FEATURES_H

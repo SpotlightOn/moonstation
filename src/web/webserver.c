@@ -8,6 +8,7 @@
 
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_pm.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_https_server.h"
@@ -15,6 +16,7 @@
 #include "freertos/task.h"
 
 #include "clock.h"
+#include "features.h"
 #include "net.h"
 #include "settings.h"
 #include "slideshow.h"
@@ -59,6 +61,9 @@ static const char index_html[] =
     ".g{display:grid;gap:.2em 1.2em;"
     "grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr))}"
     "label{display:block;margin:.65em 0 .15em;color:#8ad}"
+    "label.c{display:flex;align-items:center;gap:.4em;margin:.35em 0 0;"
+    "color:#777;font-weight:normal}"
+    "label.c input{width:auto;margin:0}"
     "small{color:#666}"
     "input{width:100%;padding:.45em;border-radius:.3em;border:1px solid #333;"
     "background:#1b1b1b;color:#eee;box-sizing:border-box}"
@@ -78,8 +83,12 @@ static const char index_html[] =
     "<fieldset><legend>Network</legend><div class='g'>"
     "<div><label for='wifi_ssid'>WiFi SSID <small id='wifi_ssid.def'></small></label>"
     "<input name='wifi_ssid' id='wifi_ssid' type='text'></div>"
-    "<div><label for='wifi_password'>WiFi password</label>"
-    "<input name='wifi_password' id='wifi_password' type='password'></div>"
+    "<div><label for='wifi_password'>WiFi password "
+    "<small id='wifi_password.state'></small></label>"
+    "<input name='wifi_password' id='wifi_password' type='password'"
+    " placeholder='leave empty to keep'>"
+    "<label class='c'><input type='checkbox' id='wifi_password.clear'>"
+    " clear the stored password</label></div>"
     "</div></fieldset>"
     "<fieldset><legend>Image show</legend><div class='g'>"
     "<div><label for='slide_dir'>Image directory <small id='slide_dir.def'></small></label>"
@@ -143,6 +152,22 @@ static const char index_html[] =
     "<input name='ntp_daily_sync_hour' id='ntp_daily_sync_hour' type='number'"
     " min='-1' max='23'></div>"
     "</div></fieldset>"
+    "<fieldset><legend>Weather</legend><div class='g'>"
+    "<div><label for='weather_api_key'>OpenWeather API key "
+    "<small id='weather_api_key.state'></small></label>"
+    "<input name='weather_api_key' id='weather_api_key' type='password'"
+    " autocomplete='off' placeholder='leave empty to keep'>"
+    "<label class='c'><input type='checkbox' id='weather_api_key.clear'>"
+    " clear the stored key</label></div>"
+    "<div><label for='weather_lat'>Latitude <small id='weather_lat.def'></small></label>"
+    "<input name='weather_lat' id='weather_lat' type='text' inputmode='decimal'></div>"
+    "<div><label for='weather_lon'>Longitude <small id='weather_lon.def'></small></label>"
+    "<input name='weather_lon' id='weather_lon' type='text' inputmode='decimal'></div>"
+    "<div><label for='weather_refresh_min'>Refresh interval (min) "
+    "<small id='weather_refresh_min.def'></small></label>"
+    "<input name='weather_refresh_min' id='weather_refresh_min' type='number'"
+    " min='5' max='1440'></div>"
+    "</div></fieldset>"
     "<fieldset><legend>Sound and battery</legend><div class='g'>"
     "<div><label for='audio_volume'>Volume (%) "
     "<small id='audio_volume.def'></small></label>"
@@ -161,8 +186,12 @@ static const char index_html[] =
     "<div><label for='web_user'>Setup user "
     "<small id='web_user.def'></small></label>"
     "<input name='web_user' id='web_user' type='text'></div>"
-    "<div><label for='web_password'>Setup password</label>"
-    "<input name='web_password' id='web_password' type='password'></div>"
+    "<div><label for='web_password'>Setup password "
+    "<small id='web_password.state'></small></label>"
+    "<input name='web_password' id='web_password' type='password'"
+    " placeholder='leave empty to keep'>"
+    "<label class='c'><input type='checkbox' id='web_password.clear'>"
+    " clear the stored password</label></div>"
     "</div></fieldset>"
     "</form>"
     "<div id='controls'>"
@@ -177,15 +206,22 @@ static const char index_html[] =
     "function load(){fetch('/api/config').then(function(r){return r.text()})"
     ".then(function(t){var d=new URLSearchParams(t);"
     "Array.prototype.forEach.call(f.elements,function(i){if(!i.id)return;"
+    "if(i.id.slice(-6)=='.clear'){i.checked=false;return}"
     "var v=d.get(i.id);if(v!==null){"
     "if(i.type=='checkbox'){i.checked=(v=='1')}"
     "else{i.value=(sc(i)>1?Math.round(v/sc(i)):v)}}"
+    "var s=document.getElementById(i.id+'.state'),sv=d.get(i.id+'.set');"
+    "if(s&&sv!==null){s.textContent=(sv=='1'?'(stored)':'(not set)')}"
     "var h=document.getElementById(i.id+'.def'),dv=d.get(i.id+'.def');"
     "if(h&&dv!==null){h.textContent='(default '+(sc(i)>1?Math.round(dv/sc(i)):dv)+')'}});"
     "say('loaded')}).catch(function(){say('could not load')})}"
     "function save(){var d=new URLSearchParams();"
     "Array.prototype.forEach.call(f.elements,function(i){if(!i.id)return;"
+    "if(i.id.slice(-6)=='.clear'){var t=document.getElementById(i.id.slice(0,-6));"
+    "if(i.checked&&t&&t.value){i.checked=false}"
+    "else if(i.checked){d.set(i.id,1);i.checked=false}return}"
     "if(i.type=='checkbox'){d.set(i.id,i.checked?1:0);return}"
+    "if(i.type=='password'&&i.value==='')return;"
     "d.set(i.id,sc(i)>1?Math.round(i.value*sc(i)):i.value)});"
     "fetch('/api/config',{method:'POST',body:d.toString()})"
     ".then(function(r){say(r.ok?'saved':'rejected');setTimeout(load,800)})"
@@ -268,13 +304,18 @@ typedef struct {
     size_t size; // string capacity, unused for numbers
     int32_t lo;  // clamp range for numbers
     int32_t hi;
+    bool secret; // never sent back to the browser, see config_get()
 } field_t;
 
-#define FIELD(f, t, s, lo, hi) {#f, t, offsetof(settings_t, f), s, lo, hi}
+#define FIELD(f, t, s, lo, hi) {#f, t, offsetof(settings_t, f), s, lo, hi, false}
+// A secret can only be written. The page gets "stored" or "not set" instead
+// of the value, an empty field on save keeps what is stored, and the extra
+// "<key>.clear" flag erases it.
+#define SECRET_FIELD(f, s) {#f, F_STR, offsetof(settings_t, f), s, 0, 0, true}
 
 static const field_t FIELDS[] = {
     FIELD(wifi_ssid, F_STR, 33, 0, 0),
-    FIELD(wifi_password, F_STR, 65, 0, 0),
+    SECRET_FIELD(wifi_password, 65),
     FIELD(slide_dir, F_STR, 32, 0, 0),
     FIELD(slide_interval_ms, F_U32, 0, 1000, 3600000),
     FIELD(slide_fade_ms, F_U16, 0, 0, 2000),
@@ -293,11 +334,17 @@ static const field_t FIELDS[] = {
     FIELD(audio_volume, F_U8, 0, 0, 100),
     FIELD(battery_warn_pct, F_U16, 0, 0, 100),
     FIELD(battery_beep_volume, F_U8, 0, 0, 100),
+    FIELD(weather_lat, F_STR, 12, 0, 0),
+    FIELD(weather_lon, F_STR, 12, 0, 0),
+    FIELD(weather_refresh_min, F_U16, 0, 5, 1440),
+    SECRET_FIELD(weather_api_key, 73),
     FIELD(web_user, F_STR, 33, 0, 0),
-    FIELD(web_password, F_STR, 65, 0, 0),
+    SECRET_FIELD(web_password, 65),
 };
 
 #define FIELD_COUNT (sizeof(FIELDS) / sizeof(FIELDS[0]))
+// config_post() tracks values and clear flags as one bit per field.
+_Static_assert(FIELD_COUNT <= 32, "too many fields for the clear mask");
 
 static void *field_ptr_in(const settings_t *s, const field_t *f)
 {
@@ -451,6 +498,17 @@ static esp_err_t config_get(httpd_req_t *req)
         const field_t *f = &FIELDS[i];
         char val[192];
         char def[192] = "";
+        if (f->secret) {
+            // Secrets are write-only: report whether one is stored, never the
+            // value itself, and no default hint either - that would be the
+            // build-time key from config.h.
+            int n = snprintf(resp_buf + pos, sizeof(resp_buf) - pos, "%s%s.set=%d",
+                             i ? "&" : "", f->key,
+                             ((const char *)field_ptr(f))[0] ? 1 : 0);
+            if (n < 0 || (size_t)n >= sizeof(resp_buf) - pos) break;
+            pos += (size_t)n;
+            continue;
+        }
         if (f->type == F_STR) {
             url_encode((const char *)field_ptr(f), val, sizeof(val));
             const char *dflt = (const char *)field_ptr_in(&defs, f);
@@ -491,6 +549,13 @@ static esp_err_t config_post(httpd_req_t *req)
     }
     body[total] = '\0';
 
+    // "<key>.clear" is the explicit way to erase a secret; an empty secret
+    // field on its own means "keep what is stored". The flags are collected
+    // first, because the browser sends the field and its clear box in page
+    // order: applying them as they arrive would erase a value that was just
+    // typed next to a box the owner forgot to untick. A typed value wins.
+    uint32_t seen = 0;
+    uint32_t erase = 0;
     int applied = 0;
     for (char *kv = strtok(body, "&"); kv != NULL; kv = strtok(NULL, "&")) {
         char *eq = strchr(kv, '=');
@@ -502,6 +567,13 @@ static esp_err_t config_post(httpd_req_t *req)
         url_decode(kv, key, sizeof(key));
         url_decode(eq + 1, val, sizeof(val));
 
+        bool clear = false;
+        size_t klen = strlen(key);
+        if (klen > 6 && strcmp(key + klen - 6, ".clear") == 0) {
+            key[klen - 6] = '\0';
+            clear = true;
+        }
+
         const field_t *f = NULL;
         for (size_t i = 0; i < FIELD_COUNT; i++) {
             if (strcmp(FIELDS[i].key, key) == 0) {
@@ -510,8 +582,14 @@ static esp_err_t config_post(httpd_req_t *req)
             }
         }
         if (f == NULL) continue;
+        size_t idx = (size_t)(f - FIELDS);
+        if (clear) {
+            if (f->secret) erase |= 1u << idx;
+            continue;
+        }
 
         if (f->type == F_STR) {
+            if (f->secret && val[0] == '\0') continue;
             snprintf((char *)field_ptr(f), f->size, "%s", val);
         } else {
             int32_t v = (int32_t)strtol(val, NULL, 10);
@@ -519,10 +597,21 @@ static esp_err_t config_post(httpd_req_t *req)
             if (v > f->hi) v = f->hi;
             field_write_num(f, v);
         }
+        seen |= 1u << idx;
+        applied++;
+    }
+
+    // Erasing wipes the whole field: leaving the tail of the old secret in
+    // the struct only confuses the next dump of the settings blob.
+    for (size_t i = 0; i < FIELD_COUNT; i++) {
+        if (!(erase & (1u << i)) || (seen & (1u << i))) continue;
+        memset(field_ptr(&FIELDS[i]), 0, FIELDS[i].size);
         applied++;
     }
 
     settings_save();
+    ESP_LOGI(TAG, "config saved, %d values, weather key %s", applied,
+             settings.weather_api_key[0] ? "set" : "empty");
     clock_apply_timezone(); // the zone is applied on every render
 
     char msg[48];
@@ -612,12 +701,55 @@ static void idle_timer_cb(void *arg)
     }
 }
 
+// The page spends nearly all of its time in the TLS stack, which is plain CPU
+// work at the default 80 MHz. While the server is up, raise the power
+// manager's ceiling to 240 MHz and hold the CPU there; when it stops, put the
+// old configuration back, so the box returns to its eco setting (80 MHz under
+// load, 40 MHz idle) and the slideshow stays as cool as before.
+#define WEB_CPU_MHZ 240
+
+static esp_pm_lock_handle_t web_cpu_lock = NULL;
+static bool web_cpu_boosted = false;
+
+static void web_cpu_boost(bool on)
+{
+    if (on == web_cpu_boosted) return;
+    if (web_cpu_lock == NULL &&
+        esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "web_cpu", &web_cpu_lock) != ESP_OK) {
+        return;
+    }
+
+    esp_pm_config_t cfg = {
+        .max_freq_mhz = on ? WEB_CPU_MHZ : CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = on ? CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ
+                           : CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ / 2,
+        .light_sleep_enable = PM_LIGHT_SLEEP,
+    };
+    esp_err_t err = esp_pm_configure(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "clock change to %d MHz failed: %s", cfg.max_freq_mhz,
+                 esp_err_to_name(err));
+        return;
+    }
+
+    if (on) {
+        esp_pm_lock_acquire(web_cpu_lock);
+        ESP_LOGI(TAG, "CPU boosted to %d MHz while the page is open", WEB_CPU_MHZ);
+    } else {
+        esp_pm_lock_release(web_cpu_lock);
+        ESP_LOGI(TAG, "CPU back to the eco setting");
+    }
+    web_cpu_boosted = on;
+}
+
 static bool start_server(void)
 {
     if (server) return true;
 
+    web_cpu_boost(true);
     if (!net_wifi_up()) {
         ESP_LOGE(TAG, "no WiFi, the setup page cannot be reached");
+        web_cpu_boost(false);
         return false;
     }
 
@@ -626,6 +758,7 @@ static bool start_server(void)
     if (!netif || esp_netif_get_ip_info(netif, &ip) != ESP_OK || ip.ip.addr == 0) {
         ESP_LOGE(TAG, "no address after the WiFi connect");
         net_wifi_down();
+        web_cpu_boost(false);
         return false;
     }
 
@@ -661,6 +794,7 @@ static bool start_server(void)
         server = NULL;
         net_wifi_release();
         net_wifi_down();
+        web_cpu_boost(false);
         return false;
     }
 
@@ -703,6 +837,7 @@ static void stop_server(void)
 
     net_wifi_release();
     net_wifi_down();
+    web_cpu_boost(false);
 }
 
 static void web_task(void *arg)

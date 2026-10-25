@@ -1,6 +1,7 @@
 #include "settings.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_log.h"
 #include "nvs.h"
@@ -113,6 +114,27 @@
 #define LCD_SPI_HZ 40000000
 #endif
 
+// Weather mode: OpenWeather key, position and refresh interval. The key is
+// only a seed for NVS, the setup page stores the one the box really uses.
+// The coordinates are stringified because they end up in the request URL.
+#ifndef WEATHER_API_KEY
+#define WEATHER_API_KEY ""
+#endif
+#ifndef WEATHER_LAT
+#define WEATHER_LAT 52.5200
+#endif
+#ifndef WEATHER_LON
+#define WEATHER_LON 13.4050
+#endif
+#ifndef WEATHER_REFRESH_MIN
+#define WEATHER_REFRESH_MIN 20
+#endif
+
+#define SETTINGS_STR_(x) #x
+#define SETTINGS_STR(x) SETTINGS_STR_(x)
+#define WEATHER_LAT_DEFAULT SETTINGS_STR(WEATHER_LAT)
+#define WEATHER_LON_DEFAULT SETTINGS_STR(WEATHER_LON)
+
 #define TZ_STD_OFFSET_MIN \
     ((int16_t)(TIMEZONE_STD_OFFSET_HOURS * 60 + \
                (TIMEZONE_STD_OFFSET_HOURS >= 0 ? 0.5 : -0.5)))
@@ -121,17 +143,10 @@ static const char *TAG = "settings";
 static const char *NVS_NAMESPACE = "settings";
 static const char *NVS_KEY = "config";
 
-// Stored as one versioned blob: bump it whenever the struct layout changes,
-// so an old blob falls back to the defaults instead of reading garbage. The
-// loader still takes the version before that, as long as nothing but appended
-// fields changed - see settings_init().
-#define SETTINGS_VERSION 4
-
-// A version 3 blob ends right before slide_fade_ms; version 2 ends before the
-// deep sleep switch. Both were the same length as everything up to that
-// member, which is what identifies them.
-#define SETTINGS_V3_BLOB_LEN \
-    (sizeof(uint32_t) + offsetof(settings_t, slide_fade_ms))
+// Stored as one versioned blob: bump it whenever the struct layout changes.
+// The loader copies whatever length is stored over the defaults, so appended
+// fields read as their build-time value instead of zero - see settings_init().
+#define SETTINGS_VERSION 5
 
 typedef struct {
     uint32_t version;
@@ -171,6 +186,10 @@ void settings_defaults_into(settings_t *out)
         .web_user = WEB_USER,
         .web_password = WEB_PASSWORD,
         .web_idle_timeout_min = WEB_IDLE_TIMEOUT_MIN,
+        .weather_api_key = WEATHER_API_KEY,
+        .weather_lat = WEATHER_LAT_DEFAULT,
+        .weather_lon = WEATHER_LON_DEFAULT,
+        .weather_refresh_min = WEATHER_REFRESH_MIN,
     };
     *out = d;
 }
@@ -182,6 +201,17 @@ void settings_defaults(void)
 
 // Keeps a broken or hand edited store from taking the firmware down: values
 // are clamped to what the code can work with.
+// A coordinate has to survive strtod() unchanged and stay inside the valid
+// range; anything else falls back to the build-time value.
+static void sanitize_coord(char *s, size_t cap, double lo, double hi, const char *dflt)
+{
+    char *end = NULL;
+    double v = strtod(s, &end);
+    if (s[0] == '\0' || end == s || *end != '\0' || v < lo || v > hi) {
+        snprintf(s, cap, "%s", dflt);
+    }
+}
+
 static void sanitize(void)
 {
     if (settings.slide_interval_ms < 1000) settings.slide_interval_ms = 1000;
@@ -221,6 +251,12 @@ static void sanitize(void)
     if (settings.web_idle_timeout_min < 1) settings.web_idle_timeout_min = 1;
     if (settings.clock_deep_sleep_enable > 1) settings.clock_deep_sleep_enable = 1;
     if (settings.slide_fade_ms > 2000) settings.slide_fade_ms = 2000;
+    if (settings.weather_refresh_min < 5) settings.weather_refresh_min = 5;
+    if (settings.weather_refresh_min > 1440) settings.weather_refresh_min = 1440;
+    sanitize_coord(settings.weather_lat, sizeof(settings.weather_lat), -90.0, 90.0,
+                   WEATHER_LAT_DEFAULT);
+    sanitize_coord(settings.weather_lon, sizeof(settings.weather_lon), -180.0, 180.0,
+                   WEATHER_LON_DEFAULT);
 }
 
 esp_err_t settings_init(void)
@@ -234,21 +270,15 @@ esp_err_t settings_init(void)
         size_t len = sizeof(blob);
         esp_err_t err = nvs_get_blob(handle, NVS_KEY, &blob, &len);
         nvs_close(handle);
-        bool current = err == ESP_OK && len == sizeof(blob) &&
-                       blob.version == SETTINGS_VERSION;
-        // The two versions before this one are shorter by the appended
-        // members; the rest of the struct lines up, the tail reads as zero.
-        bool legacy = err == ESP_OK && len == SETTINGS_V3_BLOB_LEN &&
-                      (blob.version == SETTINGS_VERSION - 1 ||
-                       blob.version == SETTINGS_VERSION - 2);
-        if (current || legacy) {
-            settings = blob.values;
-            if (legacy) {
-                settings.slide_fade_ms = SLIDE_FADE_MS;
-                if (blob.version == SETTINGS_VERSION - 2) {
-                    settings.clock_deep_sleep_enable = CLOCK_DEEP_SLEEP;
-                }
-            }
+        // A blob from an older firmware is shorter by the members appended
+        // since. Copying only what was stored leaves the rest at the defaults
+        // set above, which is exactly the migration those fields need.
+        const size_t header = offsetof(settings_blob_t, values);
+        if (err == ESP_OK && len > header && len <= sizeof(blob) &&
+            blob.version <= SETTINGS_VERSION) {
+            size_t values_len = len - header;
+            if (values_len > sizeof(settings_t)) values_len = sizeof(settings_t);
+            memcpy(&settings, &blob.values, values_len);
             loaded = true;
         }
     }
@@ -288,18 +318,22 @@ esp_err_t settings_save(void)
 
 esp_err_t settings_reset_defaults(void)
 {
-    // The WiFi credentials belong to this box and were entered by hand, the
-    // build time value for them is a template at best. Everything else goes
-    // back to the configuration the firmware was built with.
+    // The WiFi credentials and the OpenWeather key belong to this box and
+    // were entered by hand, the build time values for them are templates at
+    // best. Everything else goes back to the configuration the firmware was
+    // built with.
     char ssid[sizeof(settings.wifi_ssid)];
     char password[sizeof(settings.wifi_password)];
+    char key[sizeof(settings.weather_api_key)];
     memcpy(ssid, settings.wifi_ssid, sizeof(ssid));
     memcpy(password, settings.wifi_password, sizeof(password));
+    memcpy(key, settings.weather_api_key, sizeof(key));
 
     settings_defaults();
     memcpy(settings.wifi_ssid, ssid, sizeof(settings.wifi_ssid));
     memcpy(settings.wifi_password, password, sizeof(settings.wifi_password));
+    memcpy(settings.weather_api_key, key, sizeof(settings.weather_api_key));
 
-    ESP_LOGI(TAG, "settings reset to the defaults, WiFi kept");
+    ESP_LOGI(TAG, "settings reset to the defaults, WiFi and API key kept");
     return settings_save();
 }

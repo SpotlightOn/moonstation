@@ -29,10 +29,15 @@ moonstation/
 │   │   ├── status.c/.h
 │   │   └── pins.h
 │   ├── clock/
-│   │   ├── clock.c/.h
-│   │   └── font.h
+│   │   └── clock.c/.h
+│   ├── ui/
+│   │   ├── draw.c/.h
+│   │   └── font.h             (generated)
 │   ├── slideshow/
-│   │   ├── slideshow.c/.h
+│   │   └── slideshow.c/.h
+│   ├── weather/
+│   │   ├── weather.c/.h
+│   │   └── weather_icons.c/.h
 │   └── web/
 │       ├── webserver.c/.h
 │       └── certs.h           (generated, git-ignored)
@@ -40,7 +45,10 @@ moonstation/
 │   ├── build_slides.sh
 │   ├── generate_font.py
 │   ├── generate_cert.sh
-│   └── DejaVuSans-Bold.ttf
+│   └── fonts/
+│       ├── DejaVuSans-Bold.ttf
+│       ├── Roboto-Medium.ttf
+│       └── LICENSE-APACHE-2.0.txt
 └── docs/
     └── development.md
 ```
@@ -48,7 +56,7 @@ moonstation/
 ## Prerequisites
 
 - PlatformIO (use the bundled venv binary)
-- Python 3 with Pillow (clock font regeneration)
+- Python 3 with Pillow (font regeneration)
 - ImageMagick 7 (`magick`) for preparing slide images
 - OpenSSL (the build generates the self-signed certificate of the setup page)
 
@@ -117,6 +125,10 @@ the subset of values that makes sense at runtime.
 | `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
 | `BATTERY_REFRESH_SEC` | `300` | seconds between battery samples |
 | `BATTERY_CHARGING_ACTIVE_HIGH` | `1` | charging input reads high while charging |
+| `WEATHER_API_KEY` | empty | default OpenWeather key, normally set on the setup page |
+| `WEATHER_LAT` | `52.5200` | latitude the forecast is fetched for |
+| `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
+| `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
 
 Optional WiFi settings enable NTP time sync for the clock mode.
 
@@ -194,9 +206,10 @@ adds full brightness; off sets 0%. The PWM runs at 5 kHz with 11 bit duty from
 management section) and plenty for a backlight.
 
 Colors in the code are plain RGB565; the byte swap for the panel happens
-exactly once per write path with `RGB565_SWAP()` from `display.h`: in
-`fill_rect()`, `draw_text()` and `draw_time_text()` (clock.c) and in
-`fill_color()` (slideshow.c). The JPEG decoder needs no swap: it is configured
+exactly once per write path with `RGB565_SWAP()` from `display.h`: in the
+drawing helpers of `ui/draw.c` (`draw_pixel`, `fill_rect`, the text renderers),
+in `clock.c` where it blanks the shared buffer and in `fill_color()`
+(slideshow.c). The JPEG decoder needs no swap: it is configured
 with `JPEG_PIXEL_FORMAT_RGB565_BE` and writes the most significant byte first
 on its own. The swap is needed because the panel expects the most significant
 byte first, esp_lcd reverses only command and parameter bytes (not color data),
@@ -293,15 +306,61 @@ for mode transitions, `on_tap`/`on_long_press` for touch events (run in the
 touch task), `on_wake` for periodic work, and `next_wake_us` telling the
 manager when the mode wants to be woken next.
 
-The modes are `clock`, `slideshow` and `combined` (clock + slideshow). A long
-press cycles through them in this order: **clock -> slideshow -> combined ->
-clock**. The device boots into clock mode. `enter()` always redraws the
+The modes are `clock`, `slideshow`, `combined` (clock + slideshow) and
+`weather` (compiled in with `WEATHER_ENABLE` in `features.h`). A long press
+cycles through them in this order: **clock -> slideshow -> combined -> weather
+-> clock**; without the weather switch the cycle skips that step. The device
+boots into clock mode. `enter()` always redraws the
 full initial state, so a mode switch is visible right away, not on the next
 slide or minute. A long press switches when the finger is lifted.
 
-Adding a new mode (a weather station mode is planned): implement one
-`ui_mode_t` struct, link it into the cycle with the `next` field and it is
-picked up by the manager automatically.
+The weather mode is the reference for a mode that brings its own module: the
+`ui_mode_t` instance in `slideshow.c` only forwards `enter`, `on_wake` and the
+next wake-up time to `weather.c`, plus the usual `next` link in the cycle.
+Adding another mode works the same way: implement one `ui_mode_t` struct, link
+it into the cycle with the `next` field and it is picked up by the manager
+automatically.
+
+## Weather mode
+
+`WEATHER_ENABLE` in `features.h` (on by default, `0` removes the step) puts a
+fourth step into the cycle. The module in `src/weather/` is compiled either
+way, so CI keeps checking it; the switch only decides whether the mode joins
+the cycle and calls `weather_init()` at boot. Without a stored API key the mode
+still enters, but shows a hint that points at the setup page instead of a
+reading, so leaving it on costs nothing.
+
+- **Data source**: the free Current Weather 2.5 plus the 5 day / 3 hour
+  forecast, both by coordinate (`lat`/`lon`, the city-name query is
+  deprecated) in metric units. The forecast request asks for `cnt=12` (36
+  hours) and the screen shows the first eight steps, which is 24 hours. A
+  refresh is two calls; at the default 20 minutes that is far below the free
+  tier of 1000 calls per day. One Call 3.0 would need its own subscription and
+  a credit card, so it is not used.
+- **Pages**: the current conditions show the condition icon, the temperature in
+  the big clock font, the description, the felt temperature, high/low and
+  humidity/wind. A tap switches to the forecast page: eight columns of 3 hour
+  steps with time, icon and temperature, plus the highest chance of rain in the
+  header. Another tap goes back. `enter()` restarts on the current page.
+- **Refresh**: `weather_next_refresh_us()` asks the mode manager to wake the
+  main task when the reading is `WEATHER_REFRESH_MIN` minutes old. A failed
+  request (no WiFi, bad key, API down) is retried after 5 minutes instead of
+  hammering the API. A reading older than two intervals gets a small amber ring
+  at the top edge; without any reading or without a key the screen shows a hint
+  instead of a forecast.
+- **Cache**: the last successful answer lives as one versioned blob in the NVS
+  namespace `weather` (key `cache`). A reboot without WiFi therefore still has
+  the last screen. The request itself needs `net_wifi_up()` and releases the
+  radio again with `net_wifi_down()`, which respects the setup server's hold.
+- **Threads**: `on_tap` runs in the touch task and only sets a flag;
+  `on_wake` does the request and the redraw in the main task. The request URL
+  contains the API key (`appid`), so nothing in the module logs a URL - only
+  the endpoint and the answer.
+- **Rendering**: the icons in `weather_icons.c` are drawn from the primitives
+  of `ui/draw.c` at whatever size the layout wants; the big temperature uses
+  the fixed-cell clock font, so it lines up with the clock mode, and the degree
+  mark is a small ring after the digits. Body text uses the proportional text
+  font.
 
 ## Setup mode and status dot
 
@@ -334,16 +393,23 @@ shows. Nothing else in the firmware knows it exists.
 - **API**: `GET /api/config` returns the editable subset as form encoded
   `key=value` pairs, `POST /api/config` applies and stores it,
   `POST /api/reset` stores the build time defaults again while keeping the WiFi
-  credentials, and `POST /api/shutdown` closes the page. Every field also
-  carries its build time default as `key.def`, which the page shows next to
-  the label; the `min`/`max` limits sit in the markup and mirror the clamp
-  ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client side
-  reads and writes that format, so quotes, spaces and umlauts in passwords
+  credentials and the OpenWeather key, and `POST /api/shutdown` closes the page.
+  Every field also carries its build time default as `key.def`, which the page
+  shows next to the label; the `min`/`max` limits sit in the markup and mirror
+  the clamp ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client
+  side reads and writes that format, so quotes, spaces and umlauts in passwords
   survive without an escaping bug on either side.
+- **Secrets**: `wifi_password`, `web_password` and `weather_api_key` carry the
+  `secret` flag in `FIELDS` and are write-only. `GET /api/config` reports
+  `<key>.set=0|1` instead of the value and no build time default (that would be
+  the template from `config.h`). A POST with an empty secret field keeps what
+  is stored, so the page can be saved without retyping the key, and
+  `<key>.clear=1` erases it.
 - **Layout**: the form is grouped into `fieldset`s with legends (Network,
-  Image show, Backlight, Clock and time, Sound and battery, Setup access). The
-  script only walks `form.elements`, so the grouping cannot affect loading or
-  saving, and a new field only needs its markup plus an entry in `FIELDS`.
+  Image show, Backlight, Clock and time, Weather, Sound and battery, Setup
+  access). The script only walks `form.elements`, so the grouping cannot affect
+  loading or saving, and a new field only needs its markup plus an entry in
+  `FIELDS`.
 - **Radio**: the server holds the link with `net_wifi_hold()` for as long as
   it listens, so the daily NTP sync cannot take the page down.
 - **Lifetime**: `WEB_IDLE_TIMEOUT_MIN` minutes without a request stop it, so
@@ -380,16 +446,34 @@ wakes the main loop at the next slide, minute boundary or backlight step, and
 touch callbacks wake it via a task notification, so there is no polling redraw.
 In combined mode the overlay is refreshed the same way when the minute changes.
 
-## Clock font
+## Fonts
 
-The clock renders text with a bitmap font stored in `src/clock/font.h`. To
-regenerate it from `scripts/DejaVuSans-Bold.ttf` (requires Pillow):
+The firmware carries two bitmap fonts, both generated into `src/ui/font.h` from
+the TTFs in `scripts/fonts`:
+
+- **`font_time`**: DejaVu Sans Bold 48, the big clock digits. Fixed 35x52
+  cells, one bit per pixel, only `0-9`, `:` and `-`; the clock mode and the
+  temperature of the weather mode use it.
+- **`font_text`**: Roboto Medium 16, the system font family of Android.
+  Proportional and antialiased with 8 bit alpha, ASCII 32-126 plus the degree
+  sign at 0xB0. Line height 19 (ascent 15, descent 4), cap height 12. Each
+  glyph stores its ink box, the offset from the pen position and its advance,
+  so `draw_text()` lays a line out like a normal renderer and
+  `draw_text_width()` returns the exact width.
+
+The antialiasing blends every glyph pixel with the destination pixel
+(`blend_pixel()` in `ui/draw.c`), so text always goes on top of an already
+filled buffer; drawing into uninitialized memory would blend with garbage.
+Regenerate the header after a font or TTF change (requires Pillow):
 
 ```bash
 python3 scripts/generate_font.py
 ```
 
-Commit the resulting `src/clock/font.h` when the font changes.
+Commit the resulting `src/ui/font.h`. The old single font of the clock
+(`src/clock/font.h`) is gone; the fixed-cell metrics of `font_time` are byte
+for byte the same, so the clock looks unchanged. Roboto is Apache 2.0 licensed,
+the license text sits next to the TTF in `scripts/fonts/`.
 
 ## Continuous integration
 

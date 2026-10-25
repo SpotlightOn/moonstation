@@ -142,19 +142,34 @@
 
 // ================================ Weather ==================================
 
-// OpenWeatherMap API key, free of charge at https://openweathermap.org/api.
-// The key below is the public one shipped with the vendor firmware. It is
-// shared by every buyer of this board and often rate limited, replace it.
+// OpenWeather key for the weather mode, free of charge at
+// https://openweathermap.org/api. This value is only the default: the setup
+// page writes the key into NVS, and that one wins. The page never shows the
+// stored key again, so it is write-only there.
 #define WEATHER_API_KEY ""
 
-// 1 = detect the city from the public IP address (ip-api.com)
-// 0 = use CITY_CODE below
-#define CITY_AUTO_DETECT 1
+// Position the forecast is fetched for, in decimal degrees (WGS84). The
+// weather mode asks OpenWeather directly by coordinate; the city name query
+// is deprecated. Both values can also be changed on the setup page.
+#define WEATHER_LAT 52.5200
+#define WEATHER_LON 13.4050
 
-// City name for OpenWeatherMap when CITY_AUTO_DETECT is 0, for example
-// "Berlin,de" or "Shanghai,cn". The numeric ids in CityCode/citycode.json
-// belong to a Chinese weather service and do not work with the q= query this
-// sketch sends.
-#define CITY_CODE "101020100"
+// Minutes between two OpenWeather requests (5..1440). One refresh costs two
+// requests, which leaves the free tier of 1000 calls per day untouched even
+// at the shortest interval.
+#define WEATHER_REFRESH_MIN 20
+
+// ================================== Debug ==================================
+
+// Write the frame after every mode switch as a 240x240 BMP to
+// /sdcard/screens, so a layout problem can be checked without a photo of the
+// panel. Turn it off again after debugging: the UI waits for the card while
+// the file is written.
+#define SCREENSHOT_ENABLE 0
+
+// Additionally print each frame as hex on the console. Then a serial capture
+// is enough to rebuild the image, no card reader needed. Costs about 250 kB of
+// console output per frame and needs SCREENSHOT_ENABLE.
+#define SCREENSHOT_SERIAL 0
 
 #endif // CONFIG_H

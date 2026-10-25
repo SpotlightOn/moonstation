@@ -6,6 +6,7 @@
 #include "webserver.h"
 #include "audio.h"
 #include "clock.h"
+#include "weather.h"
 #include "esp_heap_caps.h"
 #include "esp_pm.h"
 #include "esp_timer.h"
@@ -27,6 +28,7 @@
 
 #include "features.h"
 #include "settings.h"
+#include "screenshot.h"
 
 #define MAX_SLIDE_BYTES (512 * 1024)
 #define MAX_SLIDES 256
@@ -565,8 +567,10 @@ static bool slideshow_step(void)
 // - on_wake runs in the main task on every timer/touch wake-up.
 // - next_wake_us tells the mode manager when the mode wants to be woken next.
 //
-// Adding a mode (e.g. the upcoming weather station): implement this struct,
+// Adding a mode (e.g. the weather station): implement this struct,
 // link it into the cycle via the next field and pass it to request_mode().
+// Out of the box the weather mode in weather.c is the example; WEATHER_ENABLE
+// in features.h decides whether it joins the cycle.
 //
 
 typedef struct ui_mode ui_mode_t;
@@ -585,6 +589,9 @@ struct ui_mode {
 static const ui_mode_t clock_mode;
 static const ui_mode_t slideshow_mode;
 static const ui_mode_t combined_mode;
+#if WEATHER_ENABLE
+static const ui_mode_t weather_mode;
+#endif
 
 static const ui_mode_t *active_mode = NULL;
 static const ui_mode_t *pending_mode = NULL;
@@ -793,8 +800,40 @@ static int64_t combined_next_wake_us(int64_t now_us)
 }
 
 //
-// Mode instances. Long-press cycle: clock -> slideshow -> combined -> clock.
-// The device boots into clock mode.
+// Mode: weather (cycle position 4, only with WEATHER_ENABLE)
+//
+// The weather module owns the request, the cache and the rendering; the mode
+// only hands it the frame time and makes sure the backlight schedule keeps
+// running. A tap flips between current conditions and the forecast, so the
+// long press stays free for the cycle.
+
+#if WEATHER_ENABLE
+static void weather_mode_enter(void)
+{
+    apply_power_for_mode(true);
+    combined_overlay = false;
+    weather_enter();
+}
+
+static void weather_mode_on_wake(void)
+{
+    if (take_force_redraw()) weather_redraw();
+    weather_on_wake();
+}
+
+static int64_t weather_mode_next_wake_us(int64_t now_us)
+{
+    int64_t wake_us = weather_next_refresh_us();
+    int64_t to_dim_us = next_backlight_step_us(now_us);
+    if (to_dim_us < wake_us) wake_us = to_dim_us;
+    return wake_us;
+}
+#endif // WEATHER_ENABLE
+
+//
+// Mode instances. Long-press cycle: clock -> slideshow -> combined -> weather
+// -> clock; the weather step is compiled in only with WEATHER_ENABLE. The
+// device boots into clock mode.
 //
 
 static const ui_mode_t clock_mode = {
@@ -823,7 +862,11 @@ static const ui_mode_t slideshow_mode = {
 
 static const ui_mode_t combined_mode = {
     .name = "clock+slideshow",
+#if WEATHER_ENABLE
+    .next = &weather_mode,
+#else
     .next = &clock_mode,
+#endif
     .enter_tone_hz = 988,
     .enter = combined_enter,
     .exit = release_slide_resources,
@@ -832,6 +875,33 @@ static const ui_mode_t combined_mode = {
     .on_wake = combined_on_wake,
     .next_wake_us = combined_next_wake_us,
 };
+
+#if WEATHER_ENABLE
+static const ui_mode_t weather_mode = {
+    .name = "weather",
+    .next = &clock_mode,
+    .enter_tone_hz = 740,
+    .enter = weather_mode_enter,
+    .exit = NULL,
+    .on_tap = weather_on_tap,
+    .on_long_press = mode_on_long_press,
+    .on_wake = weather_mode_on_wake,
+    .next_wake_us = weather_mode_next_wake_us,
+};
+#endif // WEATHER_ENABLE
+
+// Short file name for the debug frame dump of a mode: the display names are
+// friendly but "clock+slideshow" does not fit into the 8.3 name of the card.
+static const char *mode_shot_name(const ui_mode_t *mode)
+{
+    if (mode == &clock_mode) return "clock";
+    if (mode == &slideshow_mode) return "slides";
+    if (mode == &combined_mode) return "combined";
+#if WEATHER_ENABLE
+    if (mode == &weather_mode) return "weather";
+#endif
+    return "mode";
+}
 
 //
 // Hold automatic light sleep off while a USB host is connected: the ESP32-S3
@@ -854,6 +924,7 @@ static void usb_pm_update(void)
              connected ? "blocked" : "allowed");
 #else
     (void)usb_pm_hold;
+    (void)usb_pm_lock;
 #endif
 }
 
@@ -864,6 +935,9 @@ void slideshow_run(void)
 {
     slide_fb = display_get_framebuffer();
     clock_init();
+#if WEATHER_ENABLE
+    weather_init();
+#endif
     last_interaction = esp_timer_get_time() / 1000000LL;
 #if CLOCK_DEEP_SLEEP
     // A timer wake-up continued a deep sleep: either the sleep window just
@@ -917,6 +991,7 @@ void slideshow_run(void)
     touch_set_long_press_cb(on_long_press);
     touch_set_setup_cb(on_setup_gesture);
     active_mode->enter();
+    screenshot_capture(mode_shot_name(active_mode));
 
     while (1) {
         // Perform a pending mode switch before any other work, so the new
@@ -927,6 +1002,7 @@ void slideshow_run(void)
             if (active_mode->exit) active_mode->exit();
             active_mode = next;
             active_mode->enter();
+            screenshot_capture(mode_shot_name(active_mode));
         }
 
 #if CLOCK_DEEP_SLEEP

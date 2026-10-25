@@ -13,7 +13,8 @@
 //
 // Scope of the web UI: it may write the WiFi credentials, slide directory and
 // interval, backlight, clock (deep sleep window and switch, NTP), timezone,
-// audio/battery levels and its own login - everything an owner tunes at home.
+// audio/battery levels, the weather key and position, and its own login -
+// everything an owner tunes at home.
 // lcd_spi_hz, battery_sample_count, battery_refresh_sec and
 // wifi_listen_interval stay config.h only: board level, and a wrong value
 // there is not worth a form. Which features are built in stays a compile time
@@ -70,6 +71,16 @@ typedef struct {
     // Crossfade between two images in milliseconds, 0 cuts hard. Appended
     // last for the same reason; the loader migrates a shorter blob.
     uint16_t slide_fade_ms;
+
+    // Weather mode. Coordinates are kept as strings because they end up in
+    // the request URL verbatim; sanitize() restores the build-time default
+    // when they do not parse as a coordinate. The key is write-only on the
+    // setup page (see webserver.c); an empty one keeps the mode on its "not
+    // configured" screen.
+    char weather_api_key[73];
+    char weather_lat[12];
+    char weather_lon[12];
+    uint16_t weather_refresh_min; // minutes between two OpenWeather requests
 } settings_t;
 
 extern settings_t settings;

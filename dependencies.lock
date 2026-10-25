@@ -1,4 +1,14 @@
 dependencies:
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.19~2
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
@@ -81,12 +91,13 @@ dependencies:
       type: idf
     version: 6.1.0
 direct_dependencies:
+- espressif/cjson
 - espressif/esp_codec_dev
 - espressif/esp_lcd_gc9a01
 - espressif/esp_lcd_touch
 - espressif/esp_lcd_touch_cst816s
 - espressif/esp_new_jpeg
 - idf
-manifest_hash: 09349c1d5854434a4eab55f8a9df74bb667e46a36dc8b71ff9b8b74bb39a454f
+manifest_hash: ac77c37a23a2e237ea4c268a5a05ee84b86c71a0e4cf1a6bd4d252c5e77389c2
 target: esp32s3
 version: 3.0.0
