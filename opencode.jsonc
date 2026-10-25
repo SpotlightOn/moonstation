@@ -4,63 +4,69 @@
   // Local credentials (WiFi, API keys) belong in a git-ignored config.h in the
   // project root and must stay private: only a tracked template
   // (config.h.example) may be read or edited by an agent.
-  // Rules are matched in order, the last match wins.
-  "permissions": [
+  //
+  // These are `policies`, not `permissions`. `permissions` is a single ordered
+  // array and a project-level one replaces the global one instead of extending
+  // it, which silently drops every global rule (including its "ask before shell"
+  // catch-all). Policies merge across configuration files, only ever tighten,
+  // and cannot be lifted by an approval. The one permission policy for all
+  // projects lives in ~/.config/opencode/opencode.jsonc.
+  "policies": [
     // config.h holds local secrets and must never be read or edited.
-    // read/edit cover read/write/patch; glob blocks pattern-based access.
-    { "action": "read", "resource": "config.h", "effect": "deny" },
-    { "action": "read", "resource": "*config.h", "effect": "deny" },
-    { "action": "edit", "resource": "config.h", "effect": "deny" },
-    { "action": "edit", "resource": "*config.h", "effect": "deny" },
-    { "action": "glob", "resource": "config.h", "effect": "deny" },
-    { "action": "glob", "resource": "*config.h", "effect": "deny" },
+    // The absolute-path form is covered by the leading wildcard.
+    { "action": "tool.use", "resource": "read:config.h", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:*config.h", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:config.h", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*config.h", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:config.h", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:*config.h", "effect": "deny" },
 
     // Shell commands are raw text. Block every form that names the real file
     // (as last argument, or followed by a separator or quotes); the tracked
     // template config.h.example stays usable in shell commands.
-    { "action": "shell", "resource": "*config.h", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h *", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h;*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h|*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h&*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h>*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h<*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h\"*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h'*", "effect": "deny" },
-    { "action": "shell", "resource": "*config.h)*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h;*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h|*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h&*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h>*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h<*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h\"*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h'*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*config.h)*", "effect": "deny" },
 
     // Example slide images are not part of the software and must never be
     // read, edited or discovered by any tool. Glob covers pattern-based reads.
-    { "action": "read", "resource": "slides", "effect": "deny" },
-    { "action": "read", "resource": "slides/*", "effect": "deny" },
-    { "action": "read", "resource": "slides/**", "effect": "deny" },
-    { "action": "read", "resource": "*slides", "effect": "deny" },
-    { "action": "read", "resource": "*slides/*", "effect": "deny" },
-    { "action": "read", "resource": "*slides/**", "effect": "deny" },
-    { "action": "edit", "resource": "slides", "effect": "deny" },
-    { "action": "edit", "resource": "slides/*", "effect": "deny" },
-    { "action": "edit", "resource": "slides/**", "effect": "deny" },
-    { "action": "edit", "resource": "*slides", "effect": "deny" },
-    { "action": "edit", "resource": "*slides/*", "effect": "deny" },
-    { "action": "edit", "resource": "*slides/**", "effect": "deny" },
-    { "action": "glob", "resource": "slides", "effect": "deny" },
-    { "action": "glob", "resource": "slides/*", "effect": "deny" },
-    { "action": "glob", "resource": "slides/**", "effect": "deny" },
-    { "action": "glob", "resource": "*slides", "effect": "deny" },
-    { "action": "glob", "resource": "*slides/*", "effect": "deny" },
-    { "action": "glob", "resource": "*slides/**", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:slides/**", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:*slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:*slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "read:*slides/**", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:slides/**", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "edit:*slides/**", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:slides/**", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:*slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:*slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "glob:*slides/**", "effect": "deny" },
 
     // Shell commands are raw text. Match the slides directory specifically so
     // that unrelated names such as slideshow.c or build_slides.sh are not
     // blocked: the word must stand alone (at the start, or after a space or
     // slash), everything else may follow.
-    { "action": "shell", "resource": "slides *", "effect": "deny" },
-    { "action": "shell", "resource": "slides/*", "effect": "deny" },
-    { "action": "shell", "resource": "* slides", "effect": "deny" },
-    { "action": "shell", "resource": "* slides *", "effect": "deny" },
-    { "action": "shell", "resource": "* slides/*", "effect": "deny" },
-    { "action": "shell", "resource": "*slides", "effect": "deny" },
-    { "action": "shell", "resource": "*/slides", "effect": "deny" },
-    { "action": "shell", "resource": "*/slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:slides *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:* slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:* slides *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:* slides/*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*/slides", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:*/slides/*", "effect": "deny" },
   ],
 }
