@@ -2,79 +2,63 @@
 
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
-JPEG images from an SD card and offers a clock mode (HH:MM with date) toggled
-by a long press on the touch screen. An optional weather mode shows the current
-conditions from OpenWeather and, on a tap, the next 24 hours and then the next
-five days, and a daily alarm rings at a time set on the setup page. Touch input
-and the built-in speaker are supported, and the backlight dims automatically
-when idle.
-Holding a finger on the display for 5 seconds opens a setup page over HTTPS,
-where WiFi, timings, levels, the alarm and the weather key are changed without
-rebuilding the firmware. A box that has never been on a network
-opens its own access point and serves that page there.
+JPEG images from an SD card, a clock with date and battery, a weather mode and
+an MP3 internet radio, switched by a long press on the touch screen. A 5 s hold
+opens a setup page over HTTPS where WiFi, timings, levels, the alarm and the
+weather key are changed without a rebuild; a box that has never been on a
+network opens its own access point for that page.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
 
 ## Features
 
-- Endless slideshow of 240x240 baseline JPEGs, sorted by file name, with an
-  optional crossfade between two images
-- Touch tap advances to the next slide immediately
-- **Setup web UI over HTTPS**: hold a finger still on the display for 5 s; a
-  short beep confirms that the box took the gesture, then it serves its own
-  setup page with a login. It changes WiFi, slideshow, backlight, sleep window,
-  NTP, timezone, alarm, audio, battery and the weather key and position at
-  runtime, and a "Reset to default" button restores the firmware defaults. Its
-  footer names the firmware version and the time that build was made, so a
-  screenshot is enough to say which build a box runs. A red dot on the lower
-  edge shows that it runs, the display shows its address, and it shuts itself
-  down when idle
-- **First setup without a cable**: a box without WiFi opens its own access
-  point (`Moonstation-XXXX`, address `192.168.4.1`), so the page is reachable
-  from a phone before the box has ever been on a network
+- Endless slideshow of 240x240 baseline JPEGs, sorted by file name, optional
+  crossfade between two images; a tap advances immediately
+- Clock mode with HH:MM, weekday and date, redrawn only when the minute
+  changes, with a small jitter against burn-in. Below it the battery: icon,
+  percentage and an arrow while charging. With `CLOCK_DEEP_SLEEP` the display
+  stays dark inside the night window and a touch lights it up
+- Weather mode (`WEATHER_ENABLE`, on by default): current conditions from
+  OpenWeather, a tap shows the next 24 hours, another the next five days, a
+  third goes back. Refreshed every 20 minutes and cached in NVS, so the last
+  reading survives a reboot without WiFi
+- Radio mode (`RADIO_ENABLE`, on by default): MP3 streams from `.pls` playlists
+  on the card, one file per station, `http://` only. A drawn button plays and
+  pauses, a tap above it is louder and below it quieter, a horizontal swipe
+  changes the station; missing playlist, missing WiFi and an unreachable
+  station each get their own line and the mode keeps retrying
+- Long press (over 0.5 s, released) cycles clock -> slideshow ->
+  clock+slideshow -> weather -> radio -> clock (the last two if built in); the
+  box boots into clock mode. Only a hold that stays on for 5 s opens the setup
+  page, so a quick press never can
+- Setup web UI over HTTPS with a login: WiFi, slideshow and radio directories,
+  interval, crossfade, backlight, night window and deep sleep, NTP, timezone,
+  alarm, audio, battery and weather. Everything is stored in NVS and applied at
+  runtime; "Reset to default" restores the firmware defaults, and the page
+  footer names the firmware version and build time. A red dot on the lower edge
+  shows that it runs, the display shows its address, and it closes itself when
+  idle
+- First setup without a cable: a box without WiFi opens the access point
+  `Moonstation-XXXX` at `192.168.4.1` and serves the page there
 - No secrets in the source: WiFi, the page login and the weather key are typed
-  in on that page, stored in NVS and never shown again (write-only fields). The
-  factory login `admin` / `admin` must be replaced on the first visit
-- Long press (held over 0.5 s, released) cycles through clock, slideshow,
-  combined clock+slideshow, weather and radio modes (the last two if built
-  in); it boots into clock mode. Only a hold that stays on for the full 5 s
-  goes to the setup page instead, so a quick press can never open it by
-  accident
-- Volume by gesture in every mode: a swipe up is louder, a swipe down quieter
-  in 5 % steps - one step per 40 px of travel, at most five per swipe. A bar
-  shows the new level for a second and a half. The level is stored, so it
-  survives a reboot
-- Daily alarm at a local time, set on the setup page. It beeps and shows its
-  own screen in every mode, stops on a tap and by itself after five minutes; a
-  pending alarm also wakes the box from its night deep sleep
-- Weather mode (`WEATHER_ENABLE` in `src/config/features.h`, on by default):
-  current conditions from OpenWeather, a tap shows the next 24 hours in
-  3-hour steps, another tap the next five days, a third goes back to now.
-  Refreshed every 20 minutes by default and cached in NVS, so the mode still
-  shows the last reading after a reboot without WiFi. Without a key it shows a
-  hint instead
-- Radio mode (`RADIO_ENABLE` in `src/config/features.h`, on by default): plays
-  MP3 internet radio from `.pls` playlists on the SD card, one file per
-  station. A drawn button in the middle of the screen plays and pauses, a tap
-  above it is louder and below it quieter, a horizontal swipe changes the
-  station, and sliding still sets the volume as in every mode - so a tap that
-  was meant as a slide never stops the station. Missing playlists, missing WiFi
-  or an unreachable station each get their own line on screen; the mode keeps
-  retrying in the background. Plain `http://` only, no TLS, and nothing plays
-  once the long press leaves the mode
-- Clock mode shows the time, the weekday and the date, with a small jitter for
-  burn-in prevention
-- Battery indicator below the date: icon with the charge level, the percentage
-  and an arrow while charging
-- Automatic backlight dimming after 15 s; the deepest level is reached inside
-  the night window only, so the clock never goes dark during the day
-- Audio feedback on touch and mode changes
-- Graceful handling of a missing SD card or empty image directory
+  in on that page, stored in NVS and never shown again (write-only). The
+  factory login `admin` / `admin` has to be replaced on the first visit
+- Volume by gesture in every mode: a swipe up is louder, down quieter, one
+  5 % step per 40 px of travel, at most five per swipe. A bar shows the level
+  for 1.5 s and the level survives a reboot
+- Daily alarm at a local time, set on the page: own screen in every mode, two
+  rising tones every two seconds, stopped by a tap or after five minutes, and
+  it wakes the box from the night deep sleep
+- Backlight 100 % while active, dimmed after 15 s, deepest step after 60 s
+  inside the night window only, full brightness on any touch. Audio feedback on
+  touch and mode changes
+- Missing SD card shows a red screen, an empty image directory a yellow one,
+  both retried every 2 s; a corrupt JPEG is skipped
 
 ## Prerequisites
 
 - PlatformIO (use the bundled venv binary shown below)
-- Python 3 with Pillow (for regenerating the fonts)
+- Python 3 with Pillow (only for regenerating the fonts)
 - ImageMagick 7 (`magick`) for preparing slide images
 - OpenSSL (the build generates the self-signed certificate of the setup page)
 
@@ -96,57 +80,47 @@ stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 
 ## First setup
 
-A new or erased box has no WiFi credentials, so there is no network to reach
-the page from. It solves that itself: on the first boot it opens an access
-point and serves the setup page there.
+A new or erased box has no WiFi credentials, so it opens an access point and
+serves the setup page there:
 
 1. Power the box. While the access point runs, the display shows `192.168.4.1`
    in the battery row.
-2. Join the WiFi network `Moonstation-XXXX` with a phone or laptop. `XXXX` are
-   the last two bytes of the box's MAC, and the network has no password.
+2. Join `Moonstation-XXXX` (no password; `XXXX` are the last two bytes of the
+   MAC) with a phone or laptop.
 3. Open `https://192.168.4.1/` and accept the certificate warning.
-4. Log in with the factory login `admin` / `admin`. The page shows nothing but
-   one form: choose your own user and password. The factory login stops working
-   as soon as it is saved.
-5. The settings page opens. Enter your WiFi network name and password, plus the
-   weather key and position if you use the weather mode, then Save.
+4. Log in with `admin` / `admin` and choose your own user and password; the
+   factory login stops working as soon as it is saved.
+5. Enter your WiFi network and password, plus the weather key and position if
+   you use the weather mode, then Save.
 6. The box restarts, joins your network and closes the access point. For later
    changes hold a finger on the display for 5 s and open the address it shows.
 
-The access point is open on purpose: it serves nothing but the login form, the
-factory login has to be replaced before anything else appears, and the AP
-disappears once WiFi is configured. If the box later cannot reach its network
-(moved house, new router), the 5 s gesture falls back to the same access point.
+The access point is open on purpose: it serves nothing but the login form, which
+has to be replaced before anything else appears, and it disappears once WiFi is
+configured. If the box later cannot reach its network (moved house, new router),
+the 5 s gesture falls back to the same access point.
 
 ## Setup page
 
-Hold the finger still on the display for 5 seconds. The box beeps, shows its
-address in the battery row and serves `https://<address>/` with a self-signed
-certificate (the browser warning on the first visit is expected). The page
-closes itself after 15 minutes without a request, or immediately on another
-5 s hold.
+Hold the finger still for 5 s. The box beeps, shows its address in the battery
+row and serves `https://<address>/` with a self-signed certificate (the browser
+warning on the first visit is expected). The page closes itself after 15 minutes
+without a request, or immediately on another 5 s hold.
 
-Everything the owner tunes lives there: WiFi credentials, the login, the
-weather key and position, slideshow and radio directories, interval,
-crossfade, backlight levels and delays, night window and deep sleep, NTP and
-timezone, daily alarm, audio volume, battery warning level and the idle
-timeout. All of
-it is stored in NVS and applied without a reboot; only WiFi waits for the next
-server start
-(the box restarts itself when it was configured over its own access point).
-
-The login is never empty. A changed user or password takes effect immediately
-and the browser asks for the new one right after saving. The password and the
-weather key are write-only: the page reports only whether one is stored, an
-empty field keeps it, and a checkbox erases the WiFi password or the key.
+Everything the owner tunes lives there, applied without a reboot; only WiFi
+waits for the next server start (the box restarts itself when it was configured
+over its own access point). A changed login takes effect immediately and the
+browser asks for the new one right after saving. The password and the weather
+key are write-only: the page reports only whether one is stored, an empty field
+keeps it, and a checkbox erases the WiFi password or the key.
 
 ## Configuration
 
-Copy `config.h.example` to `config.h` in the project root and adjust it. The
-file is tracked in git, so it must not contain a secret - see the note on
-credentials below. The macros set the defaults: they are read into runtime
-settings at boot (`src/config/settings.c`), NVS can override them, and a
-firmware without `config.h` behaves exactly like the fallbacks in that file.
+Copy `config.h.example` to `config.h` in the project root and adjust it. The file
+is tracked, so it must not contain a credential. The macros are the defaults:
+they are read into runtime settings at boot (`src/config/settings.c`), NVS can
+override them, and a firmware without `config.h` behaves like the fallbacks in
+that file.
 
 | Macro | Default | Meaning |
 | --- | --- | --- |
@@ -188,60 +162,42 @@ firmware without `config.h` behaves exactly like the fallbacks in that file.
 ### Credentials
 
 WiFi, the login of the setup page and the OpenWeather key are not part of the
-template: they are typed in on the page and stored in NVS.
+template: they are typed in on the page and stored in NVS, and "Reset to
+default" keeps them. `config.h` can be committed - check `git diff` for
+credentials before you do. `WIFI_SSID` and `WIFI_PASSWORD` still compile in as an
+emergency hatch, both empty and commented out in the template, for the case
+where the access point cannot be used.
 
-- A box without WiFi opens its own access point on the first boot, see
-  [First setup](#first-setup). Neither a cable nor a rebuild is needed.
-- The login ships as `admin` / `admin` and has to be replaced before the page
-  shows anything else. It lives in NVS too, so "Reset to default" keeps it.
-- `config.h` can be committed. Run `git diff` before you do and make sure no
-  credential sneaked in. `WIFI_SSID` and `WIFI_PASSWORD` still compile in as an
-  emergency hatch - both empty by default and commented out in the template -
-  for the case where the access point cannot be used.
+The WiFi and NTP stack is always linked. Without an SSID the clock keeps the
+compile time and only the setup access point runs; with WiFi the firmware
+connects, waits up to 10 s for the first NTP answer and switches the radio off
+again, repeating that at `NTP_DAILY_SYNC_HOUR` because the RTC drifts by seconds
+per day without a 32.768 kHz crystal.
 
-The WiFi and NTP stack is always compiled in; without an SSID the clock keeps
-the compile time and the radio runs the setup access point on the first boot.
-With WiFi configured the firmware connects, waits for the first NTP answer (up
-to 10 s) and switches the radio off again; if no server answers it keeps the
-time it had before. It repeats that at `NTP_DAILY_SYNC_HOUR`, since the RTC
-drifts by seconds per day without a 32.768 kHz crystal.
+The weather mode requests by coordinate in metric units, two calls per refresh;
+a failed refresh is retried after 5 minutes, and a reading older than two
+intervals gets a small amber ring at the top of the screen.
 
-`WEATHER_ENABLE` in `src/config/features.h` (`0` removes the mode from the
-cycle) builds the weather mode in. The request is made by coordinate in metric
-units, two requests per refresh. A refresh that fails is retried after
-5 minutes, and a reading older than two intervals gets a small amber ring at
-the top of the screen.
-
-With `CLOCK_DEEP_SLEEP` set to `1` the clock mode drops into deep sleep inside
-the local hours of the sleep window (default 23:00 to 07:00). The compile
-switch only decides whether that code is in the firmware and what the box
-starts with; the setup page's *Deep sleep at night* switch turns the same
-behaviour off and on at any time. The display stays dark for the whole window -
-no minute redraws, no flashes - and a touch lights it up for the normal
-dimming period. A pending alarm breaks the sleep at its time and rings, so an
-alarm inside the window is not lost; afterwards the box goes back to sleep. The
-wake-up at the end of the window brings the clock back at full brightness and
-starts the normal dimming schedule. Every wake-up is a full
-reboot: the RTC keeps the time, and with WiFi configured the wake at the end of
-the window resyncs via NTP.
+With `CLOCK_DEEP_SLEEP` the clock mode deep sleeps inside the night window
+(default 23:00 to 07:00); the setup page's *Deep sleep at night* switch turns
+the same behaviour off and on at any time. The display stays dark for the whole
+window, a touch lights it up for the normal dimming period, and a pending alarm
+breaks the sleep at its time, rings, and sends the box back afterwards. Every
+wake-up is a full reboot: the RTC keeps the time, and the wake at the end of the
+window resyncs via NTP.
 
 ## SD card
 
 Format the card as FAT32 and place 240x240 baseline JPEGs in the configured
-directory. The firmware scans it on boot and loops through the files in name
-order.
-
-### Preparing images
-
-A helper script converts arbitrary JPEGs/PNGs to the required format using
-ImageMagick 7:
+directory; the firmware scans it on boot and loops through the files in name
+order. `scripts/build_slides.sh` converts arbitrary images with ImageMagick 7:
 
 ```bash
 ./scripts/build_slides.sh /path/to/images
 ./scripts/build_slides.sh /path/to/images /path/to/output
 ```
 
-Then copy the output to the SD card.
+Then copy the output to the card.
 
 ## Hardware
 
@@ -252,8 +208,8 @@ as an AI desktop assistant running Xiaozhi.
   80 MHz, drops to 10 MHz while both cores are idle and raises the clock to
   240 MHz while the setup page is open
 - Flash: 16 MB (W25Q128JVSIQ per Spotpear, reported as 16 MB by the bootloader)
-- PSRAM: 8 MB octal at 80 MHz, enabled in the build and used for the crossfade
-  frame and the clock-free slide copy of combined mode
+- PSRAM: 8 MB octal at 80 MHz, used for the crossfade frame and the clock-free
+  slide copy of combined mode
 - Panel: GC9A01, 1.28", 240x240, 65K colours, inversion on, SPI at 40 MHz
   (MOSI 2, SCLK 4, CS 5, DC 47, RST 38)
 - Backlight: GPIO 42, active low, PWM controlled
@@ -268,37 +224,9 @@ as an AI desktop assistant running Xiaozhi.
 - Console: logs go to UART0 (GPIO 43/44) and to the chip's native USB
   Serial/JTAG, which is the `/dev/ttyACM0` on a Linux host
 
-## Runtime behavior
-
-- No WiFi configured: the clock keeps the compile time and the box opens its
-  setup access point on the first boot
-- No SD card: red screen, retry every 2 seconds
-- Empty or missing image directory: yellow screen, rescan every 2 seconds
-- Unreadable or corrupt JPEG: skipped, next image shown
-- Touch advances to the next slide immediately
-- A vertical swipe anywhere changes the volume, one 5 % step per 40 px of
-  travel (at most five), shown as a bar in the middle of the screen for 1.5 s;
-  a horizontal swipe belongs to the mode and never counts as a tap
-- In the radio mode the drawn button in the middle of the screen plays and
-  pauses, a tap above it is louder and below it quieter, and a horizontal swipe
-  changes the station
-- Long press cycles clock -> slideshow -> clock+slideshow -> weather -> radio
-  (the last two if built in) -> clock; the switch redraws immediately
-- Weather mode taps flip between current conditions and the 24-hour forecast;
-  the long press still changes the mode
-- The alarm rings once a day at its local time with two rising tones every two
-  seconds and a blinking `ALARM` screen; a tap or a long press stops it, and so
-  does a five minute safety timeout
-- Clock mode shows HH:MM with the weekday and date below, redrawing only once
-  per minute (timer driven, no polling)
-- Backlight: 100 % while active, `BACKLIGHT_DIM_PCT` after 15 s, the deepest
-  level after 60 s inside the night window only, full brightness on any touch
-- Battery readings are sampled by a timer every 5 minutes and shown from that
-  cache; when a refresh reports 10 % or less the device beeps quietly
-
 ## Development
 
 CI runs cppcheck and a full firmware build on every push to `main` and on pull
-requests; pushing a `v*` tag publishes a GitHub Release with the binaries.
-See [docs/development.md](docs/development.md) for build details, hardware notes,
-configuration, and regeneration of the fonts.
+requests; pushing a `v*` tag publishes a GitHub Release with the binaries. See
+[docs/development.md](docs/development.md) for internals, hardware notes and the
+font regeneration.
