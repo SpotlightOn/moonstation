@@ -1,9 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-10-26
 
 **New**
 
+- Internet radio mode (`RADIO_ENABLE`, on by default): MP3 streams from `.pls`
+  playlists in `/radio`, one file per station and its mirrors used for retries.
+  A network and a decoder task share a 64 kB ring in PSRAM, so the I2S DMA never
+  starves; playback state, bitrate and station position are on screen, and a
+  station that comes back is picked up without a tap.
+- The firmware names its version and build time: a boot log line and a footer on
+  the setup page, both from `src/config/version.h`.
 - Daily alarm, set on the setup page (`ALARM_ENABLED`, `ALARM_HOUR`,
   `ALARM_MINUTE`): own ringing screen, two rising tones, stops on a tap or a
   long press, gives up after five minutes, a changed time applies at once.
@@ -13,6 +20,14 @@
   on screen for 1.5 s; the level survives a reboot.
 - The setup page, its stylesheet and scripts are ordinary files under
   `src/web/`, inlined into `pages.h` before every build.
+
+**Changed**
+
+- Gestures are classified by travel alone (`TOUCH_SWIPE_MIN_PX` 50 -> 25 px): a
+  slow volume slide is a swipe, never a tap or a long press, so it cannot switch
+  the mode in the middle of a station.
+- The radio draws its own play/pause button and a tap above or below it changes
+  the volume, so an accidental tap no longer stops the stream.
 
 ## 0.4.1 - 2026-10-25
 

@@ -498,7 +498,7 @@ Nothing else in the firmware knows it exists.
   footer. The date and time are the compiler's `__DATE__`/`__TIME__`, so they are
   exactly the build of the binary answering; `FW_VERSION` is bumped by hand with
   the release tag. The same line is logged at boot (`moonstation boot, firmware
-  0.4.1 built ...`), which usually tells two builds apart from a serial capture.
+  0.5.0 built ...`), which usually tells two builds apart from a serial capture.
 - **Secrets**: `wifi_password`, `web_password` and `weather_api_key` carry the
   `secret` flag in `FIELDS` and are write-only. `GET /api/config` reports
   `<key>.set=0|1` instead of the value and no default (that would be the template
