@@ -1,5 +1,6 @@
 #include "draw.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #include "display.h"
@@ -184,6 +185,26 @@ void draw_text(const char *s, int x, int y, uint16_t color, uint16_t *fb)
 void draw_text_center(const char *s, int y, int dx, uint16_t color, uint16_t *fb)
 {
     draw_text(s, (SCREEN_W - draw_text_width(s)) / 2 + dx, y, color, fb);
+}
+
+void draw_text_center_fit(const char *s, int y, int max_w, uint16_t color,
+                          uint16_t *fb)
+{
+    char line[128];
+    snprintf(line, sizeof(line), "%s", s);
+    size_t n = strlen(line);
+    if (draw_text_width(line) > max_w) {
+        // Cut from the end and mark it with two dots, the same way the
+        // weather lines do it.
+        while (n > 2 && draw_text_width(line) > max_w) {
+            line[--n] = '\0';
+        }
+        if (n >= 2) {
+            line[n - 2] = '.';
+            line[n - 1] = '.';
+        }
+    }
+    draw_text_center(line, y, 0, color, fb);
 }
 
 int draw_time_height(void)

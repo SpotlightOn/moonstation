@@ -9,6 +9,7 @@
 #include "alarm.h"
 #include "clock.h"
 #include "weather.h"
+#include "radio.h"
 #include "esp_heap_caps.h"
 #include "esp_pm.h"
 #include "esp_timer.h"
@@ -31,9 +32,18 @@
 #include "features.h"
 #include "settings.h"
 #include "screenshot.h"
+#include "osd.h"
 
 #define MAX_SLIDE_BYTES (512 * 1024)
 #define MAX_SLIDES 256
+// One volume step, and how much finger travel buys one. Twenty steps span the
+// whole range, so a slide across the panel is worth about a quarter of it,
+// while a short flick still nudges it by one - the slide is the natural gesture
+// on a screen this small, and every extra gesture is one more chance to hit
+// something else by accident.
+#define VOLUME_STEP_PCT 5
+#define VOLUME_STEP_PX 40
+#define VOLUME_MAX_STEPS 5
 
 static const char *TAG = "slideshow";
 // Shared RGB565 frame buffer, assigned in slideshow_run(). Both the slides
@@ -582,7 +592,8 @@ static bool slideshow_step(void)
 //
 // - enter/exit run in the main task when a mode becomes active/is replaced;
 //   enter must draw the mode's initial state so switches are always visible.
-// - on_tap/on_long_press run in the touch task.
+// - on_tap gets the point the finger landed on (modes may draw buttons),
+//   on_long_press runs without one.
 // - on_wake runs in the main task on every timer/touch wake-up.
 // - next_wake_us tells the mode manager when the mode wants to be woken next.
 //
@@ -599,7 +610,8 @@ struct ui_mode {
     int enter_tone_hz;        // feedback tone when entering this mode
     void (*enter)(void);
     void (*exit)(void);       // may be NULL
-    void (*on_tap)(void);     // may be NULL
+    void (*on_tap)(int x, int y); // may be NULL; x/y is where the finger landed
+    void (*on_swipe)(int dx, int dy); // horizontal swipes, may be NULL
     void (*on_long_press)(void);
     void (*on_wake)(void);
     int64_t (*next_wake_us)(int64_t now_us);
@@ -610,6 +622,9 @@ static const ui_mode_t slideshow_mode;
 static const ui_mode_t combined_mode;
 #if WEATHER_ENABLE
 static const ui_mode_t weather_mode;
+#endif
+#if RADIO_ENABLE
+static const ui_mode_t radio_mode;
 #endif
 
 static const ui_mode_t *active_mode = NULL;
@@ -634,7 +649,7 @@ static void mode_on_long_press(void)
     request_mode(target);
 }
 
-static void on_touch_tap(void)
+static void on_touch_tap(int x, int y)
 {
     last_interaction = esp_timer_get_time() / 1000000LL;
     display_backlight_set_brightness(settings.backlight_full_pct);
@@ -648,8 +663,71 @@ static void on_touch_tap(void)
         return;
     }
     if (active_mode && active_mode->on_tap) {
-        active_mode->on_tap();
+        active_mode->on_tap(x, y);
     }
+    wake_main_task();
+}
+
+// Volume is the one gesture that works in every mode, so it lives in the mode
+// manager rather than in a mode. The touch task only counts steps; the main
+// loop applies them, draws the overlay and stores the new value once per
+// gesture.
+static volatile int volume_steps = 0;
+
+static void on_swipe(int dx, int dy, int duration_ms)
+{
+    (void)duration_ms;
+    last_interaction = esp_timer_get_time() / 1000000LL;
+    display_backlight_set_brightness(settings.backlight_full_pct);
+    last_brightness = settings.backlight_full_pct;
+    // While it rings the alarm enforces its own minimum volume, so a quieter
+    // setting would only make the bar lie about what is heard.
+    if (alarm_is_ringing()) return;
+    // Horizontal swipes belong to the mode (the radio changes station with
+    // them); the volume takes the vertical ones.
+    if (abs(dx) > abs(dy) || dy == 0) {
+        if (active_mode && active_mode->on_swipe) {
+            active_mode->on_swipe(dx, dy);
+            wake_main_task();
+        }
+        return;
+    }
+    // finger up is louder. The travel decides how many steps one gesture is
+    // worth: a careful slide should not be wasted on a single step, and every
+    // extra gesture is one more chance to hit something else by accident.
+    int steps = abs(dy) / VOLUME_STEP_PX;
+    if (steps < 1) steps = 1;
+    if (steps > VOLUME_MAX_STEPS) steps = VOLUME_MAX_STEPS;
+    __atomic_fetch_add(&volume_steps, dy < 0 ? steps : -steps,
+                       __ATOMIC_SEQ_CST);
+    wake_main_task();
+}
+
+static void apply_volume_steps(void)
+{
+    int steps = __atomic_exchange_n(&volume_steps, 0, __ATOMIC_SEQ_CST);
+    if (steps == 0) return;
+
+    int volume = settings.audio_volume + steps * VOLUME_STEP_PCT;
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+    audio_set_volume(volume);
+    osd_show_volume(volume);
+    if (volume != settings.audio_volume) {
+        settings.audio_volume = (uint8_t)volume;
+        // Once per gesture, not per step: NVS is flash.
+        settings_save();
+    }
+    ESP_LOGI(TAG, "volume %d%%", volume);
+}
+
+// Volume steps on behalf of a mode: the radio draws its own buttons and calls
+// this, everything else (clamping, overlay, one NVS write per gesture) stays
+// here where the gesture also ends up.
+void slideshow_volume_steps(int steps)
+{
+    if (steps == 0) return;
+    __atomic_fetch_add(&volume_steps, steps, __ATOMIC_SEQ_CST);
     wake_main_task();
 }
 
@@ -717,9 +795,11 @@ static void clock_enter(void)
     last_clock_min = tm.tm_min;
 }
 
-static void clock_on_tap(void)
+static void clock_on_tap(int x, int y)
 {
     // Nothing to advance in clock mode; the wrapper still resets dimming.
+    (void)x;
+    (void)y;
 }
 
 static void clock_on_wake(void)
@@ -756,8 +836,10 @@ static void slideshow_enter(void)
     slideshow_step(); // draws the current (or next due) slide right away
 }
 
-static void slideshow_on_tap(void)
+static void slideshow_on_tap(int x, int y)
 {
+    (void)x;
+    (void)y;
     if (slide_count == 0) return; // error screen, nothing to advance
     audio_play_tone(660, 60);
     advance_req = true;
@@ -845,6 +927,14 @@ static int64_t combined_next_wake_us(int64_t now_us)
 // long press stays free for the cycle.
 
 #if WEATHER_ENABLE
+static void weather_mode_on_tap(int x, int y)
+{
+    // The weather pages are flipped by any tap, wherever it lands.
+    (void)x;
+    (void)y;
+    weather_on_tap();
+}
+
 static void weather_mode_enter(void)
 {
     apply_power_for_mode(true);
@@ -866,6 +956,37 @@ static int64_t weather_mode_next_wake_us(int64_t now_us)
     return wake_us;
 }
 #endif // WEATHER_ENABLE
+
+//
+// Mode: radio (cycle position 5, only with RADIO_ENABLE)
+//
+// The radio module owns the station list, the stream and the screen; the mode
+// only hands it the frame time and keeps the backlight schedule running. A tap
+// plays and pauses, a horizontal swipe changes station, the long press leaves
+// the mode.
+
+#if RADIO_ENABLE
+static void radio_mode_enter(void)
+{
+    apply_power_for_mode(true);
+    combined_overlay = false;
+    radio_enter();
+}
+
+static void radio_mode_on_wake(void)
+{
+    if (take_force_redraw()) radio_redraw();
+    radio_on_wake();
+}
+
+static int64_t radio_mode_next_wake_us(int64_t now_us)
+{
+    int64_t wake_us = radio_next_wake_us(now_us);
+    int64_t to_dim_us = next_backlight_step_us(now_us);
+    if (to_dim_us < wake_us) wake_us = to_dim_us;
+    return wake_us;
+}
+#endif // RADIO_ENABLE
 
 //
 // Mode instances. Long-press cycle: clock -> slideshow -> combined -> weather
@@ -901,6 +1022,8 @@ static const ui_mode_t combined_mode = {
     .name = "clock+slideshow",
 #if WEATHER_ENABLE
     .next = &weather_mode,
+#elif RADIO_ENABLE
+    .next = &radio_mode,
 #else
     .next = &clock_mode,
 #endif
@@ -916,16 +1039,35 @@ static const ui_mode_t combined_mode = {
 #if WEATHER_ENABLE
 static const ui_mode_t weather_mode = {
     .name = "weather",
+#if RADIO_ENABLE
+    .next = &radio_mode,
+#else
     .next = &clock_mode,
+#endif
     .enter_tone_hz = 740,
     .enter = weather_mode_enter,
     .exit = NULL,
-    .on_tap = weather_on_tap,
+    .on_tap = weather_mode_on_tap,
     .on_long_press = mode_on_long_press,
     .on_wake = weather_mode_on_wake,
     .next_wake_us = weather_mode_next_wake_us,
 };
 #endif // WEATHER_ENABLE
+
+#if RADIO_ENABLE
+static const ui_mode_t radio_mode = {
+    .name = "radio",
+    .next = &clock_mode,
+    .enter_tone_hz = 660,
+    .enter = radio_mode_enter,
+    .exit = radio_exit,
+    .on_tap = radio_on_tap,
+    .on_swipe = radio_on_swipe,
+    .on_long_press = mode_on_long_press,
+    .on_wake = radio_mode_on_wake,
+    .next_wake_us = radio_mode_next_wake_us,
+};
+#endif // RADIO_ENABLE
 
 // Short file name for the debug frame dump of a mode: the display names are
 // friendly but "clock+slideshow" does not fit into the 8.3 name of the card.
@@ -936,6 +1078,9 @@ static const char *mode_shot_name(const ui_mode_t *mode)
     if (mode == &combined_mode) return "combined";
 #if WEATHER_ENABLE
     if (mode == &weather_mode) return "weather";
+#endif
+#if RADIO_ENABLE
+    if (mode == &radio_mode) return "radio";
 #endif
     return "mode";
 }
@@ -975,6 +1120,7 @@ void slideshow_run(void)
 #if WEATHER_ENABLE
     weather_init();
 #endif
+    osd_init();
     last_interaction = esp_timer_get_time() / 1000000LL;
 
     // The clock ceiling and the idle floor come from power_init(); this lock
@@ -1010,6 +1156,7 @@ void slideshow_run(void)
     touch_init(on_touch_tap);
     touch_set_long_press_cb(on_long_press);
     touch_set_setup_cb(on_setup_gesture);
+    touch_set_swipe_cb(on_swipe);
     active_mode->enter();
     screenshot_capture(mode_shot_name(active_mode));
 
@@ -1085,6 +1232,12 @@ void slideshow_run(void)
         }
         update_backlight();
 
+        // After the mode has drawn: the overlay has to be the last thing that
+        // reaches the panel in this pass, otherwise the mode's redraw would
+        // already have replaced it.
+        apply_volume_steps();
+        osd_on_wake(esp_timer_get_time());
+
         int64_t now_us = esp_timer_get_time();
         int64_t wake_us = alarm_next_wake_us(now_us);
         if (!ringing) {
@@ -1093,6 +1246,8 @@ void slideshow_run(void)
             int64_t mode_us = active_mode->next_wake_us(now_us);
             if (mode_us < wake_us) wake_us = mode_us;
         }
+        int64_t osd_us = osd_next_wake_us(now_us);
+        if (osd_us < wake_us) wake_us = osd_us;
         if (wake_us < 10000) wake_us = 10000;     // avoid a busy spin
         if (wake_us > 60000000) wake_us = 60000000; // cap the safety timeout
 

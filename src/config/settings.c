@@ -20,6 +20,9 @@
 #ifndef SLIDE_DIR
 #define SLIDE_DIR "/slides"
 #endif
+#ifndef RADIO_DIR
+#define RADIO_DIR "/radio"
+#endif
 // Crossfade between two images in milliseconds, 0 cuts hard. Needs the PSRAM
 // buffer below; without PSRAM the firmware falls back to the hard cut.
 #ifndef SLIDE_FADE_MS
@@ -167,7 +170,7 @@ static const char *NVS_KEY = "config";
 // Stored as one versioned blob: bump it whenever the struct layout changes.
 // The loader copies whatever length is stored over the defaults, so appended
 // fields read as their build-time value instead of zero - see settings_init().
-#define SETTINGS_VERSION 6
+#define SETTINGS_VERSION 7
 
 typedef struct {
     uint32_t version;
@@ -214,6 +217,7 @@ void settings_defaults_into(settings_t *out)
         .alarm_enabled = ALARM_ENABLED,
         .alarm_hour = ALARM_HOUR,
         .alarm_minute = ALARM_MINUTE,
+        .radio_dir = RADIO_DIR,
     };
     *out = d;
 }
@@ -241,6 +245,9 @@ static void sanitize(void)
     if (settings.slide_interval_ms < 1000) settings.slide_interval_ms = 1000;
     if (settings.slide_dir[0] == '\0') {
         snprintf(settings.slide_dir, sizeof(settings.slide_dir), "%s", SLIDE_DIR);
+    }
+    if (settings.radio_dir[0] == '\0') {
+        snprintf(settings.radio_dir, sizeof(settings.radio_dir), "%s", RADIO_DIR);
     }
     if (settings.backlight_full_pct > 100) settings.backlight_full_pct = 100;
     if (settings.backlight_dim_pct > 100) settings.backlight_dim_pct = 100;

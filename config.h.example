@@ -24,6 +24,10 @@
 // Directory on the SD card holding the 240x240 baseline JPEGs.
 #define SLIDE_DIR "/slides"
 
+// Directory on the SD card holding the radio playlists (.pls, one station per
+// file). The setup page can change it at runtime.
+#define RADIO_DIR "/radio"
+
 // Crossfade between two images in milliseconds, 0 cuts hard. Needs a second
 // frame buffer, which lives in PSRAM (the board has 8 MB); a build without
 // PSRAM ignores the value. A transition costs about half a second of SPI

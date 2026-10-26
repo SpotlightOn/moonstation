@@ -5,10 +5,13 @@ idf_component_register(
          "core/battery.c" "core/status.c" "core/net.c" "core/screenshot.c"
          "core/power.c"
          "ui/draw.c"
+         "ui/osd.c"
          "clock/clock.c" "alarm/alarm.c" "slideshow/slideshow.c"
          "weather/weather.c" "weather/weather_icons.c"
+         "radio/pls.c" "radio/stream.c" "radio/radio.c"
          "web/webserver.c"
-    INCLUDE_DIRS "." "config" "core" "ui" "clock" "alarm" "slideshow" "weather" "web"
+    INCLUDE_DIRS "." "config" "core" "ui" "clock" "alarm" "slideshow" "weather"
+                 "radio" "web"
     REQUIRES esp_lcd fatfs esp_timer driver esp_adc esp_wifi esp_event esp_netif
              nvs_flash esp_https_server esp_http_client mbedtls
 )

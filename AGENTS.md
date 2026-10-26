@@ -8,10 +8,13 @@ ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240 round
 display), built with PlatformIO. Features: an endless slideshow of 240x240 JPEG
 images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
 by a long press on the touch screen, an optional weather mode (OpenWeather,
-current conditions and a 24-hour forecast, tap to flip pages), PWM backlight
-dimming, and audio feedback. Touch and the built-in speaker must be functional.
-A box without WiFi credentials opens its own access point (Moonstation-XXXX,
-192.168.4.1) and serves the setup page there, so the first setup needs no cable.
+current conditions and a 24-hour forecast, tap to flip pages), an optional
+internet radio that plays MP3 streams from `.pls` files in `/radio` on the card
+(tap the drawn button to pause, swipe sideways to change station), PWM
+backlight dimming, and audio feedback. Touch and the built-in speaker must be
+functional. A box without WiFi credentials opens its own access point
+(Moonstation-XXXX, 192.168.4.1) and serves the setup page there, so the first
+setup needs no cable.
 
 ## Hard rules
 
@@ -34,22 +37,20 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | --- | --- |
 | `platformio.ini` | Single env `spotpear_esp32s3`, espidf framework |
 | `partitions_16mb.csv` | 16 MB flash, 4 MB factory app |
-| `CMakeLists.txt` | Top-level ESP-IDF project |
-| `src/CMakeLists.txt` | Main component registration |
+| `CMakeLists.txt`, `src/CMakeLists.txt` | Top-level project and main component |
 | `src/main.c` | Entry point (`app_main`) |
-| `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`) |
+| `src/config/` | Defaults from `config.h`, NVS overlay (`settings.c/.h`), switches (`features.h`), build stamp (`version.h`) |
 | `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `power`, `status`, `pins.h` |
 | `src/ui/` | Frame buffer drawing helpers (`draw.c/.h`) and the generated fonts (`font.h`) |
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
-| `src/weather/` | Weather mode: request, NVS cache, rendering (`weather.c/.h`) and icons (`weather_icons.c/.h`) |
-| `src/alarm/` | Daily alarm: detection, beep pattern, ringing screen (`alarm.c/.h`) |
-| `src/web/` | Setup web server (`webserver.c/.h`); the pages are `page.html/.css/.js` and `setup.html/.js`, `pages.h` and `certs.h` are generated and git-ignored |
+| `src/weather/` | Weather mode: request, NVS cache, rendering, icons |
+| `src/radio/` | Radio mode (`radio.c/.h`), HTTP/decode tasks with the ring buffer (`stream.c/.h`), `.pls` parser (`pls.c/.h`) |
+| `src/alarm/` | Daily alarm: detection, beep pattern, ringing screen |
+| `src/web/` | Setup web server (`webserver.c/.h`) plus the page assets; `pages.h` and `certs.h` are generated and git-ignored |
 | `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |
-| `scripts/fonts/` | Source TTFs of both bitmap fonts (DejaVu Sans Bold, Roboto Medium) plus licenses |
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
-| `scripts/generate_web.py` | Regenerates `src/web/pages.h` from the page assets, called before every build |
-| `src/idf_component.yml` | Managed ESP-IDF dependencies |
+| `scripts/generate_web.py` | Regenerates `src/web/pages.h`, called before every build |
 | `config.h.example` | Tracked config template |
 | `config.h` | Tracked local board settings, never a credential |
 | `PLAN.md` | Implementation plan |
@@ -79,12 +80,11 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
 
 ## Hardware facts
 
-- ESP32-S3 N16R8, 16 MB flash, 8 MB octal PSRAM (measured: 8 MB at 80 MHz),
-  CPU at 80 MHz, 10 MHz while both cores are idle.
-- 8 MB octal PSRAM at 80 MHz is enabled in the build (`CONFIG_SPIRAM` in
-  `sdkconfig.defaults`, boot log: `Found 8MB PSRAM device`, SPI SRAM test OK).
-  It holds the optional crossfade frame buffer and the clock-free slide copy of
-  combined mode; everything else runs on the internal RAM.
+- ESP32-S3 N16R8, 16 MB flash, 8 MB octal PSRAM at 80 MHz (`CONFIG_SPIRAM` in
+  `sdkconfig.defaults`, boot log: `Found 8MB PSRAM device`), CPU at 80 MHz,
+  10 MHz while both cores are idle.
+- The PSRAM holds the crossfade frame buffer, the clock-free slide copy of
+  combined mode and the radio ring buffer; everything else runs on internal RAM.
 - Console: logs go to UART0 on GPIO 43/44 and to the chip's native USB
   Serial/JTAG, which is the `/dev/ttyACM0` on the dev machine. That USB
   peripheral cannot survive light sleep, so keep `PM_LIGHT_SLEEP` off while
