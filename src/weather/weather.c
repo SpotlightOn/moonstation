@@ -24,11 +24,12 @@
 
 static const char *TAG = "weather";
 
-// Both requests of a refresh stay well below this; the cap only protects the
-// heap from a badly framed answer.
-#define FETCH_MAX 16384
+// The forecast answer for five days is the biggest body of a refresh; the cap
+// only protects the heap from a badly framed answer.
+#define FETCH_MAX 24576
 #define FORECAST_STEPS 8
-#define CACHE_VERSION 1
+#define DAILY_DAYS 5
+#define CACHE_VERSION 2
 #define CACHE_NS "weather"
 #define CACHE_KEY "cache"
 // A failed refresh (no WiFi, API down, bad key) waits this long before it
@@ -51,6 +52,15 @@ typedef struct {
     uint8_t pop;     // probability of precipitation, percent
 } weather_step_t;
 
+// One row of the daily page, aggregated from the 3 hour steps of that day.
+typedef struct {
+    int32_t dt;      // first step of the day, only used for the weekday
+    int16_t temp_min;
+    int16_t temp_max;
+    int16_t cond;    // condition closest to local noon
+    uint8_t pop;     // highest chance of precipitation of the day
+} weather_day_t;
+
 // Everything a screen needs. Stored in NVS as one blob, so the version field
 // guards against a layout change of an older firmware.
 typedef struct {
@@ -70,11 +80,12 @@ typedef struct {
     char city[24];
     char desc[32];
     weather_step_t steps[FORECAST_STEPS];
+    weather_day_t days[DAILY_DAYS];
 } weather_data_t;
 
 static weather_data_t wx;
 static bool have_data;
-static int page;                  // 0 current conditions, 1 forecast
+static int page;                  // 0 current, 1 next 24 h, 2 next days
 static volatile bool tap_pending; // set in the touch task, handled on wake
 static bool failed;               // last refresh failed, waiting for RETRY_US
 static int64_t retry_at_us;
@@ -249,22 +260,71 @@ static bool parse_forecast(const char *body, weather_data_t *out)
     const cJSON *list = cJSON_GetObjectItemCaseSensitive(root, "list");
     int count = cJSON_GetArraySize(list);
     int used = 0;
-    for (int i = 0; i < count && used < FORECAST_STEPS; i++) {
+    int day_count = 0;
+    int day_key[DAILY_DAYS];
+    int noon_gap[DAILY_DAYS];
+
+    for (int i = 0; i < count; i++) {
         const cJSON *item = cJSON_GetArrayItem(list, i);
         const cJSON *temp = cJSON_GetObjectItemCaseSensitive(item, "main");
         const cJSON *w0 = cJSON_GetArrayItem(
             cJSON_GetObjectItemCaseSensitive(item, "weather"), 0);
         if (!cJSON_IsObject(temp) || !cJSON_IsObject(w0)) continue;
 
-        weather_step_t *step = &out->steps[used++];
-        step->dt = json_int(item, "dt", 0);
-        step->temp = (int16_t)json_int(temp, "temp", 0);
-        step->cond = (int16_t)json_int(w0, "id", 800);
+        int32_t dt = json_int(item, "dt", 0);
+        int16_t t = (int16_t)json_int(temp, "temp", 0);
+        int16_t cond = (int16_t)json_int(w0, "id", 800);
         const cJSON *pop = cJSON_GetObjectItemCaseSensitive(item, "pop");
-        step->pop = cJSON_IsNumber(pop)
-                        ? (uint8_t)(pop->valuedouble * 100.0 + 0.5)
-                        : 0;
-        if (step->pop > out->pop) out->pop = step->pop;
+        uint8_t chance = cJSON_IsNumber(pop)
+                             ? (uint8_t)(pop->valuedouble * 100.0 + 0.5)
+                             : 0;
+
+        // The 24 hour page takes the first eight steps; its rain figure must
+        // come from those, not from the whole five day window.
+        if (used < FORECAST_STEPS) {
+            weather_step_t *step = &out->steps[used++];
+            step->dt = dt;
+            step->temp = t;
+            step->cond = cond;
+            step->pop = chance;
+            if (chance > out->pop) out->pop = chance;
+        }
+
+        time_t when = dt;
+        struct tm tm;
+        localtime_r(&when, &tm);
+        int key = tm.tm_yday + 400 * tm.tm_year; // one calendar day, local time
+        int gap = tm.tm_hour >= 12 ? tm.tm_hour - 12 : 12 - tm.tm_hour;
+
+        int slot = -1;
+        for (int d = 0; d < day_count; d++) {
+            if (day_key[d] == key) {
+                slot = d;
+                break;
+            }
+        }
+        if (slot < 0) {
+            if (day_count == DAILY_DAYS) continue; // first days are full
+            slot = day_count++;
+            day_key[slot] = key;
+            noon_gap[slot] = gap;
+            weather_day_t *day = &out->days[slot];
+            day->dt = dt;
+            day->temp_min = t;
+            day->temp_max = t;
+            day->cond = cond;
+            day->pop = chance;
+        }
+        weather_day_t *day = &out->days[slot];
+        if (t < day->temp_min) day->temp_min = t;
+        if (t > day->temp_max) day->temp_max = t;
+        if (chance > day->pop) day->pop = chance;
+        // The icon stands for the day, so the step closest to noon wins over
+        // the morning or evening one.
+        if (gap < noon_gap[slot]) {
+            noon_gap[slot] = gap;
+            day->cond = cond;
+        }
     }
     cJSON_Delete(root);
     return used > 0;
@@ -302,7 +362,9 @@ static bool refresh(void)
     free(body);
     body = NULL;
 
-    if (!build_url(url, sizeof(url), "forecast", "&cnt=12")) goto out;
+    // 40 steps of three hours are five days; the first eight of them are the
+    // 24 hour page and all of them feed the daily rows.
+    if (!build_url(url, sizeof(url), "forecast", "&cnt=40")) goto out;
     if (!http_get(url, &body)) goto out;
     if (!parse_forecast(body, &fresh)) {
         ESP_LOGW(TAG, "forecast: unreadable answer");
@@ -505,6 +567,49 @@ static void render_forecast(uint16_t *fb)
     push(fb);
 }
 
+static void render_daily(uint16_t *fb)
+{
+    fill_rect(0, 0, SCREEN_W, SCREEN_H, COL_BG, fb);
+    draw_stale_marker(6, fb);
+
+    char header[32];
+    snprintf(header, sizeof(header), "Next %d days", DAILY_DAYS);
+    draw_text_center(header, 16, 0, COL_DIM, fb);
+
+    static const char *const weekday[] = {"Sun", "Mon", "Tue", "Wed",
+                                          "Thu", "Fri", "Sat"};
+    for (int i = 0; i < DAILY_DAYS; i++) {
+        const weather_day_t *day = &wx.days[i];
+        if (day->dt == 0) break;
+        // Five rows of 28 px between the header and the lower edge.
+        int y = 52 + i * 28;
+        time_t t = day->dt;
+        struct tm tm;
+        localtime_r(&t, &tm);
+
+        draw_text(weekday[tm.tm_wday], 44, y, COL_TEXT, fb);
+        weather_icon_draw(88, y + 9, 22, weather_icon_kind(day->cond), false,
+                          fb);
+
+        char temp[8];
+        snprintf(temp, sizeof(temp), "%d" DEG, day->temp_max);
+        draw_text(temp, 112, y, COL_TEXT, fb);
+        snprintf(temp, sizeof(temp), "%d" DEG, day->temp_min);
+        draw_text(temp, 146, y, COL_DIM, fb);
+
+        // Only worth the space when it is a real chance; the 24 hour page
+        // carries the detailed figure in its header. Right-aligned so the
+        // widest case, "100%", still sits inside the round panel up here.
+        if (day->pop >= 20) {
+            char pop[8];
+            snprintf(pop, sizeof(pop), "%d%%", day->pop);
+            draw_text(pop, 220 - draw_text_width(pop), y, COL_DIM, fb);
+        }
+    }
+
+    push(fb);
+}
+
 void weather_redraw(void)
 {
     uint16_t *fb = display_get_framebuffer();
@@ -519,8 +624,10 @@ void weather_redraw(void)
         render_message("No weather yet", hint, fb);
     } else if (page == 0) {
         render_current(fb);
-    } else {
+    } else if (page == 1) {
         render_forecast(fb);
+    } else {
+        render_daily(fb);
     }
 }
 
@@ -562,7 +669,7 @@ void weather_on_wake(void)
     bool flipped = false;
     if (tap_pending) {
         tap_pending = false;
-        page ^= 1;
+        page = (page + 1) % 3;
         flipped = true;
         redraw = true;
     }
@@ -580,9 +687,12 @@ void weather_on_wake(void)
     if (redraw) {
         weather_redraw();
         // A tap is the only moment the page changes without a mode switch,
-        // so this is where the debug dump needs a second name. Refreshes stay
-        // quiet, otherwise a 20 minute interval would spam the card.
-        if (flipped) screenshot_capture(page ? "wx-fc" : "wx-cur");
+        // so this is where the debug dump needs a name per page. Refreshes
+        // stay quiet, otherwise a 20 minute interval would spam the card.
+        if (flipped) {
+            screenshot_capture(page == 0 ? "wx-cur"
+                                         : page == 1 ? "wx-fc" : "wx-days");
+        }
     }
 }
 

@@ -401,16 +401,20 @@ reading, so leaving it on costs nothing.
 
 - **Data source**: the free Current Weather 2.5 plus the 5 day / 3 hour
   forecast, both by coordinate (`lat`/`lon`, the city-name query is
-  deprecated) in metric units. The forecast request asks for `cnt=12` (36
-  hours) and the screen shows the first eight steps, which is 24 hours. A
-  refresh is two calls; at the default 20 minutes that is far below the free
-  tier of 1000 calls per day. One Call 3.0 would need its own subscription and
-  a credit card, so it is not used.
+  deprecated) in metric units. The forecast request asks for `cnt=40`, the
+  whole five days: the first eight steps feed the 24 hour page, and all of
+  them are aggregated per local calendar day (min/max, highest rain chance,
+  the condition closest to noon). A refresh is two calls; at the default 20
+  minutes that is far below the free tier of 1000 calls per day. One Call 3.0
+  would need its own subscription and a credit card, so it is not used, and
+  the 16 day endpoint is a paid plan.
 - **Pages**: the current conditions show the condition icon, the temperature in
   the big clock font, the description, the felt temperature, high/low and
   humidity/wind. A tap switches to the forecast page: eight columns of 3 hour
   steps with time, icon and temperature, plus the highest chance of rain in the
-  header. Another tap goes back. `enter()` restarts on the current page.
+  header. Another tap shows five rows of weekday, icon, high and low, with the
+  rain chance where it is at least 20 percent. A third tap goes back to the
+  current page. `enter()` restarts on the current page.
 - **Refresh**: `weather_next_refresh_us()` asks the mode manager to wake the
   main task when the reading is `WEATHER_REFRESH_MIN` minutes old. A failed
   request (no WiFi, bad key, API down) is retried after 5 minutes instead of

@@ -4,9 +4,10 @@ ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
 JPEG images from an SD card and offers a clock mode (HH:MM with date) toggled
 by a long press on the touch screen. An optional weather mode shows the current
-conditions from OpenWeather and, on a tap, the forecast for the next 24 hours,
-and a daily alarm rings at a time set on the setup page. Touch input and the
-built-in speaker are supported, and the backlight dims automatically when idle.
+conditions from OpenWeather and, on a tap, the next 24 hours and then the next
+five days, and a daily alarm rings at a time set on the setup page. Touch input
+and the built-in speaker are supported, and the backlight dims automatically
+when idle.
 Holding a finger on the display for 5 seconds opens a setup page over HTTPS,
 where WiFi, timings, levels, the alarm and the weather key are changed without
 rebuilding the firmware. A box that has never been on a network
@@ -41,9 +42,10 @@ opens its own access point and serves that page there.
   pending alarm also wakes the box from its night deep sleep
 - Weather mode (`WEATHER_ENABLE` in `src/config/features.h`, on by default):
   current conditions from OpenWeather, a tap shows the next 24 hours in
-  3-hour steps, another tap goes back. Refreshed every 20 minutes by default
-  and cached in NVS, so the mode still shows the last reading after a reboot
-  without WiFi. Without a key it shows a hint instead
+  3-hour steps, another tap the next five days, a third goes back to now.
+  Refreshed every 20 minutes by default and cached in NVS, so the mode still
+  shows the last reading after a reboot without WiFi. Without a key it shows a
+  hint instead
 - Clock mode shows the time, the weekday and the date, with a small jitter for
   burn-in prevention
 - Battery indicator below the date: icon with the charge level, the percentage
