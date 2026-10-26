@@ -1,0 +1,193 @@
+<!doctype html>
+<html>
+<head>
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Moonstation setup</title>
+<style>
+<!-- include: page.css -->
+</style>
+</head>
+<body>
+<h1>Moonstation</h1>
+<p class='h'>Settings of the box. Save writes them to flash; WiFi applies at the
+next server start, a new setup login right after saving.</p>
+
+<!-- The min and max attributes mirror the clamp ranges of FIELDS in
+     webserver.c, and data-scale bridges the unit of the firmware and the unit
+     of the field. -->
+<form id='f'>
+
+<fieldset>
+<legend>Network</legend>
+<div class='g'>
+<div><label for='wifi_ssid'>WiFi SSID <small id='wifi_ssid.def'></small></label>
+<input name='wifi_ssid' id='wifi_ssid' type='text'></div>
+<div><label for='wifi_password'>WiFi password
+<small id='wifi_password.state'></small></label>
+<input name='wifi_password' id='wifi_password' type='password'
+placeholder='leave empty to keep'>
+<label class='c'><input type='checkbox' id='wifi_password.clear'>
+clear the stored password</label></div>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Image show</legend>
+<div class='g'>
+<div><label for='slide_dir'>Image directory
+<small id='slide_dir.def'></small></label>
+<input name='slide_dir' id='slide_dir' type='text'></div>
+<div><label for='slide_interval_ms'>Time per image (s)
+<small id='slide_interval_ms.def'></small></label>
+<input name='slide_interval_ms' id='slide_interval_ms' type='number' min='1'
+max='3600' data-scale='1000'></div>
+<div><label for='slide_fade_ms'>Crossfade (ms, 0 = hard cut)
+<small id='slide_fade_ms.def'></small></label>
+<input name='slide_fade_ms' id='slide_fade_ms' type='number' min='0'
+max='2000' step='50'></div>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Backlight</legend>
+<div class='g'>
+<div><label for='backlight_full_pct'>Brightness while active (%)
+<small id='backlight_full_pct.def'></small></label>
+<input name='backlight_full_pct' id='backlight_full_pct' type='number'
+min='10' max='100'></div>
+<div><label for='backlight_dim_pct'>Dimmed brightness (%)
+<small id='backlight_dim_pct.def'></small></label>
+<input name='backlight_dim_pct' id='backlight_dim_pct' type='number'
+min='0' max='100'></div>
+<div><label for='backlight_deep_pct'>Deep dim brightness (%, night only)
+<small id='backlight_deep_pct.def'></small></label>
+<input name='backlight_deep_pct' id='backlight_deep_pct' type='number'
+min='0' max='100'></div>
+<div><label for='backlight_dim_after_sec'>Dim after (s idle)
+<small id='backlight_dim_after_sec.def'></small></label>
+<input name='backlight_dim_after_sec' id='backlight_dim_after_sec'
+type='number' min='1' max='255'></div>
+<div><label for='backlight_deep_after_sec'>Deep dim after (s idle)
+<small id='backlight_deep_after_sec.def'></small></label>
+<input name='backlight_deep_after_sec' id='backlight_deep_after_sec'
+type='number' min='1' max='255'></div>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Clock and time</legend>
+<div class='g'>
+<div><label for='clock_deep_sleep_enable'>Deep sleep at night
+<small id='clock_deep_sleep_enable.def'></small></label>
+<input name='clock_deep_sleep_enable' id='clock_deep_sleep_enable'
+type='checkbox' value='1'></div>
+<div><label for='clock_deep_sleep_from'>Sleep window from (hour)
+<small id='clock_deep_sleep_from.def'></small></label>
+<input name='clock_deep_sleep_from' id='clock_deep_sleep_from' type='number'
+min='0' max='23'></div>
+<div><label for='clock_deep_sleep_to'>Sleep window to (hour)
+<small id='clock_deep_sleep_to.def'></small></label>
+<input name='clock_deep_sleep_to' id='clock_deep_sleep_to' type='number'
+min='0' max='23'></div>
+<div><label for='tz_std_offset_min'>UTC offset (minutes)
+<small id='tz_std_offset_min.def'></small></label>
+<input name='tz_std_offset_min' id='tz_std_offset_min' type='number'
+min='-720' max='840'></div>
+<div><label for='tz_eu_dst'>EU summer time
+<small id='tz_eu_dst.def'></small></label>
+<input name='tz_eu_dst' id='tz_eu_dst' type='checkbox' value='1'></div>
+<div><label for='ntp_server'>NTP server
+<small id='ntp_server.def'></small></label>
+<input name='ntp_server' id='ntp_server' type='text'></div>
+<div><label for='ntp_daily_sync_hour'>Daily NTP resync (hour, -1 = off)
+<small id='ntp_daily_sync_hour.def'></small></label>
+<input name='ntp_daily_sync_hour' id='ntp_daily_sync_hour' type='number'
+min='-1' max='23'></div>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Alarm</legend>
+<div class='g'>
+<div><label for='alarm_enabled'>Daily alarm
+<small id='alarm_enabled.def'></small></label>
+<input name='alarm_enabled' id='alarm_enabled' type='checkbox' value='1'></div>
+<div><label for='alarm_time'>Time <small id='alarm_time.def'></small></label>
+<input name='alarm_time' id='alarm_time' type='time' step='60'></div>
+</div>
+<p class='h'>Rings once a day at this local time, also while the box sleeps
+through its night window. A tap on the screen stops it; it also stops by itself
+after five minutes.</p>
+</fieldset>
+
+<fieldset>
+<legend>Weather</legend>
+<div class='g'>
+<div><label for='weather_api_key'>OpenWeather API key
+<small id='weather_api_key.state'></small></label>
+<input name='weather_api_key' id='weather_api_key' type='password'
+autocomplete='off' placeholder='leave empty to keep'>
+<label class='c'><input type='checkbox' id='weather_api_key.clear'>
+clear the stored key</label></div>
+<div><label for='weather_lat'>Latitude
+<small id='weather_lat.def'></small></label>
+<input name='weather_lat' id='weather_lat' type='text'
+inputmode='decimal'></div>
+<div><label for='weather_lon'>Longitude
+<small id='weather_lon.def'></small></label>
+<input name='weather_lon' id='weather_lon' type='text'
+inputmode='decimal'></div>
+<div><label for='weather_refresh_min'>Refresh interval (min)
+<small id='weather_refresh_min.def'></small></label>
+<input name='weather_refresh_min' id='weather_refresh_min' type='number'
+min='5' max='1440'></div>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Sound and battery</legend>
+<div class='g'>
+<div><label for='audio_volume'>Volume (%)
+<small id='audio_volume.def'></small></label>
+<input name='audio_volume' id='audio_volume' type='number'
+min='0' max='100'></div>
+<div><label for='battery_warn_pct'>Low battery warning from (%)
+<small id='battery_warn_pct.def'></small></label>
+<input name='battery_warn_pct' id='battery_warn_pct' type='number'
+min='0' max='100'></div>
+<div><label for='battery_beep_volume'>Battery warning volume (%)
+<small id='battery_beep_volume.def'></small></label>
+<input name='battery_beep_volume' id='battery_beep_volume' type='number'
+min='0' max='100'></div>
+</div>
+</fieldset>
+
+<fieldset>
+<legend>Setup access</legend>
+<div class='g'>
+<div><label for='web_user'>Setup user
+<small id='web_user.def'></small></label>
+<input name='web_user' id='web_user' type='text'></div>
+<div><label for='web_password'>Setup password
+<small id='web_password.state'></small></label>
+<input name='web_password' id='web_password' type='password'
+autocomplete='new-password' placeholder='leave empty to keep'></div>
+</div>
+<p class='h'>The login is never empty. Changing the user or the password signs
+the browser out and asks for the new one right after saving.</p>
+</fieldset>
+
+</form>
+
+<div id='controls'>
+<button form='f' type='submit'>Save</button>
+<button class='d' id='reset' type='button'>Reset to default</button>
+<button class='d' id='stop' type='button'>Stop server</button>
+</div>
+<p id='m'></p>
+<script>
+<!-- include: page.js -->
+</script>
+</body>
+</html>

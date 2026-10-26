@@ -8,5 +8,7 @@ sdkconfig.old
 managed_components/
 sdkconfig.*
 src/web/certs.h
+__pycache__/
+src/web/pages.h
 debug-shots/
 WORKX

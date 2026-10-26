@@ -13,8 +13,8 @@
 //
 // Scope of the web UI: it may write the WiFi credentials, slide directory and
 // interval, backlight, clock (deep sleep window and switch, NTP), timezone,
-// audio/battery levels, the weather key and position, and its own login -
-// everything an owner tunes at home.
+// alarm, audio/battery levels, the weather key and position, and its own login
+// - everything an owner tunes at home.
 // lcd_spi_hz, battery_sample_count, battery_refresh_sec and
 // wifi_listen_interval stay config.h only: board level, and a wrong value
 // there is not worth a form. Which features are built in stays a compile time
@@ -83,6 +83,13 @@ typedef struct {
     char weather_lat[12];
     char weather_lon[12];
     uint16_t weather_refresh_min; // minutes between two OpenWeather requests
+
+    // Daily alarm, appended last for the same migration reason. The hour and
+    // the minute are local wall clock; src/alarm rings once a day at that time
+    // and stops on a tap. The setup page edits the pair as one time field.
+    uint8_t alarm_enabled;
+    uint8_t alarm_hour;   // 0..23
+    uint8_t alarm_minute; // 0..59
 } settings_t;
 
 extern settings_t settings;

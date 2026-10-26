@@ -4,11 +4,12 @@ ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
 JPEG images from an SD card and offers a clock mode (HH:MM with date) toggled
 by a long press on the touch screen. An optional weather mode shows the current
-conditions from OpenWeather and, on a tap, the forecast for the next 24 hours.
-Touch input and the built-in speaker are supported, and the backlight dims
-automatically when idle. Holding a finger on the display for 5 seconds opens a
-setup page over HTTPS, where WiFi, timings, levels and the weather key are
-changed without rebuilding the firmware. A box that has never been on a network
+conditions from OpenWeather and, on a tap, the forecast for the next 24 hours,
+and a daily alarm rings at a time set on the setup page. Touch input and the
+built-in speaker are supported, and the backlight dims automatically when idle.
+Holding a finger on the display for 5 seconds opens a setup page over HTTPS,
+where WiFi, timings, levels, the alarm and the weather key are changed without
+rebuilding the firmware. A box that has never been on a network
 opens its own access point and serves that page there.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
@@ -21,10 +22,10 @@ opens its own access point and serves that page there.
 - **Setup web UI over HTTPS**: hold a finger still on the display for 5 s; a
   short beep confirms that the box took the gesture, then it serves its own
   setup page with a login. It changes WiFi, slideshow, backlight, sleep window,
-  NTP, timezone, audio, battery and the weather key and position at runtime,
-  and a "Reset to default" button restores the firmware defaults. A red dot on
-  the lower edge shows that it runs, the display shows its address, and it
-  shuts itself down when idle
+  NTP, timezone, alarm, audio, battery and the weather key and position at
+  runtime, and a "Reset to default" button restores the firmware defaults. A
+  red dot on the lower edge shows that it runs, the display shows its address,
+  and it shuts itself down when idle
 - **First setup without a cable**: a box without WiFi opens its own access
   point (`Moonstation-XXXX`, address `192.168.4.1`), so the page is reachable
   from a phone before the box has ever been on a network
@@ -35,6 +36,9 @@ opens its own access point and serves that page there.
   combined clock+slideshow and (if built in) weather modes; it boots into clock
   mode. Only a hold that stays on for the full 5 s goes to the setup page
   instead, so a quick press can never open it by accident
+- Daily alarm at a local time, set on the setup page. It beeps and shows its
+  own screen in every mode, stops on a tap and by itself after five minutes; a
+  pending alarm also wakes the box from its night deep sleep
 - Weather mode (`WEATHER_ENABLE` in `src/config/features.h`, on by default):
   current conditions from OpenWeather, a tap shows the next 24 hours in
   3-hour steps, another tap goes back. Refreshed every 20 minutes by default
@@ -48,10 +52,6 @@ opens its own access point and serves that page there.
   the night window only, so the clock never goes dark during the day
 - Audio feedback on touch and mode changes
 - Graceful handling of a missing SD card or empty image directory
-
-## Planned
-
-- alarm clock
 
 ## Prerequisites
 
@@ -111,8 +111,9 @@ closes itself after 15 minutes without a request, or immediately on another
 Everything the owner tunes lives there: WiFi credentials, the login, the
 weather key and position, slideshow directory and interval, crossfade,
 backlight levels and delays, night window and deep sleep, NTP and timezone,
-audio volume, battery warning level and the idle timeout. All of it is stored
-in NVS and applied without a reboot; only WiFi waits for the next server start
+daily alarm, audio volume, battery warning level and the idle timeout. All of
+it is stored in NVS and applied without a reboot; only WiFi waits for the next
+server start
 (the box restarts itself when it was configured over its own access point).
 
 The login is never empty. A changed user or password takes effect immediately
@@ -160,6 +161,9 @@ firmware without `config.h` behaves exactly like the fallbacks in that file.
 | `WEATHER_LAT` | `52.5200` | latitude the forecast is fetched for |
 | `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
 | `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
+| `ALARM_ENABLED` | `0` | alarm switch at boot (1 = on) |
+| `ALARM_HOUR` | `7` | local hour of the alarm (0-23) |
+| `ALARM_MINUTE` | `0` | minute of the alarm (0-59) |
 
 ### Credentials
 
@@ -194,8 +198,10 @@ switch only decides whether that code is in the firmware and what the box
 starts with; the setup page's *Deep sleep at night* switch turns the same
 behaviour off and on at any time. The display stays dark for the whole window -
 no minute redraws, no flashes - and a touch lights it up for the normal
-dimming period. The wake-up at the end of the window brings the clock back at
-full brightness and starts the normal dimming schedule. Every wake-up is a full
+dimming period. A pending alarm breaks the sleep at its time and rings, so an
+alarm inside the window is not lost; afterwards the box goes back to sleep. The
+wake-up at the end of the window brings the clock back at full brightness and
+starts the normal dimming schedule. Every wake-up is a full
 reboot: the RTC keeps the time, and with WiFi configured the wake at the end of
 the window resyncs via NTP.
 
@@ -254,6 +260,9 @@ as an AI desktop assistant running Xiaozhi.
   in) -> clock; the switch redraws immediately
 - Weather mode taps flip between current conditions and the 24-hour forecast;
   the long press still changes the mode
+- The alarm rings once a day at its local time with two rising tones every two
+  seconds and a blinking `ALARM` screen; a tap or a long press stops it, and so
+  does a five minute safety timeout
 - Clock mode shows HH:MM with the weekday and date below, redrawing only once
   per minute (timer driven, no polling)
 - Backlight: 100 % while active, `BACKLIGHT_DIM_PCT` after 15 s, the deepest

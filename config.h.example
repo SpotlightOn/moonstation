@@ -171,6 +171,15 @@
 // at the shortest interval.
 #define WEATHER_REFRESH_MIN 20
 
+// ================================= Alarm ===================================
+
+// Daily alarm at a local time of day. Off by default; the setup page switches
+// it on and sets the hour and minute (0-23, 0-59). While it rings, a tap on the
+// display stops it; it also stops by itself after five minutes.
+#define ALARM_ENABLED 0
+#define ALARM_HOUR 7
+#define ALARM_MINUTE 0
+
 // ================================== Debug ==================================
 
 // Write the frame after every mode switch as a 240x240 BMP to
