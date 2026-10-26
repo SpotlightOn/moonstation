@@ -5,8 +5,8 @@
 #include <stdint.h>
 #include "esp_err.h"
 
-// Weather mode: an OpenWeather screen with the current conditions and, after
-// a tap, the forecast for the next 24 hours.
+// Weather mode: an OpenWeather screen with the current conditions, the next
+// 24 hours and the next five days, one tap apart.
 //
 // The module owns the request, the NVS cache of the last reading and the
 // rendering; the mode callbacks that drive it live in slideshow.c, the same

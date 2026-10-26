@@ -7,6 +7,8 @@
 - Daily alarm, set on the setup page (`ALARM_ENABLED`, `ALARM_HOUR`,
   `ALARM_MINUTE`): own ringing screen, two rising tones, stops on a tap or a
   long press, gives up after five minutes, a changed time applies at once.
+- A third weather page with the next five days: weekday, icon, high and low,
+  aggregated from the 3-hour steps of the free forecast.
 - The setup page, its stylesheet and scripts are ordinary files under
   `src/web/`, inlined into `pages.h` before every build.
 
