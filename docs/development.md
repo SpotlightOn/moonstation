@@ -457,17 +457,12 @@ shows. Nothing else in the firmware knows it exists.
   certificate; that is expected for a device without a domain.
 - **Pages**: the markup, the stylesheet and the scripts are plain files under
   `src/web/` (`page.html`, `page.css`, `page.js` for the settings form,
-  `setup.html`/`setup.js` for the first login form). `scripts/generate_web.py`
-  turns them into `web/pages.h` - one `static const char` per file plus its
-  length - which `webserver.c` includes, so the pages live in flash and are
-  served with a single `httpd_resp_send()`. No filesystem, no partition,
-  nothing to mount, and no escaping of quotes in C. The generator runs from a
-  PlatformIO `extra_scripts` hook before every build and from
-  `src/CMakeLists.txt` at configure time; `pages.h` is git-ignored, editing
-  `page.css` and rebuilding is enough. Each file gets its own route (`/`,
-  `/page.css`, `/page.js`, `/setup.js`), all behind the same Basic auth, with
-  `Cache-Control: no-store` because the page and the API it talks to change
-  together.
+  `setup.html`/`setup.js` for the first login form). The HTML files pull the
+  other assets in with an `<!-- include: name -->` line;
+  `scripts/generate_web.py` substitutes them verbatim and writes `web/pages.h`
+  (generated, git-ignored) before every build. Each page is therefore one
+  document in flash, served with a single `httpd_resp_send()` from the only
+  route, `/`, with `Cache-Control: no-store`. A missing file fails the build.
 - **Sockets**: a TLS socket costs about 40 kB of RAM, so the pool holds two;
   if the heap cannot take the second one, the start retries with one.
 - **Auth**: HTTP Basic, checked against a header built once at start. The login
