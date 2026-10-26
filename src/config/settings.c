@@ -139,6 +139,18 @@
 #define WEATHER_REFRESH_MIN 20
 #endif
 
+// Daily alarm at a local time of day. Off by default; the setup page switches
+// it on and sets the time.
+#ifndef ALARM_ENABLED
+#define ALARM_ENABLED 0
+#endif
+#ifndef ALARM_HOUR
+#define ALARM_HOUR 7
+#endif
+#ifndef ALARM_MINUTE
+#define ALARM_MINUTE 0
+#endif
+
 #define SETTINGS_STR_(x) #x
 #define SETTINGS_STR(x) SETTINGS_STR_(x)
 #define WEATHER_LAT_DEFAULT SETTINGS_STR(WEATHER_LAT)
@@ -155,7 +167,7 @@ static const char *NVS_KEY = "config";
 // Stored as one versioned blob: bump it whenever the struct layout changes.
 // The loader copies whatever length is stored over the defaults, so appended
 // fields read as their build-time value instead of zero - see settings_init().
-#define SETTINGS_VERSION 5
+#define SETTINGS_VERSION 6
 
 typedef struct {
     uint32_t version;
@@ -199,6 +211,9 @@ void settings_defaults_into(settings_t *out)
         .weather_lat = WEATHER_LAT_DEFAULT,
         .weather_lon = WEATHER_LON_DEFAULT,
         .weather_refresh_min = WEATHER_REFRESH_MIN,
+        .alarm_enabled = ALARM_ENABLED,
+        .alarm_hour = ALARM_HOUR,
+        .alarm_minute = ALARM_MINUTE,
     };
     *out = d;
 }
@@ -276,6 +291,9 @@ static void sanitize(void)
                    WEATHER_LAT_DEFAULT);
     sanitize_coord(settings.weather_lon, sizeof(settings.weather_lon), -180.0, 180.0,
                    WEATHER_LON_DEFAULT);
+    if (settings.alarm_enabled > 1) settings.alarm_enabled = 0;
+    if (settings.alarm_hour > 23) settings.alarm_hour = ALARM_HOUR;
+    if (settings.alarm_minute > 59) settings.alarm_minute = ALARM_MINUTE;
 }
 
 esp_err_t settings_init(void)

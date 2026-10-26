@@ -43,10 +43,12 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
 | `src/weather/` | Weather mode: request, NVS cache, rendering (`weather.c/.h`) and icons (`weather_icons.c/.h`) |
-| `src/web/` | Setup web server (`webserver.c/.h`); `certs.h` is generated and git-ignored |
+| `src/alarm/` | Daily alarm: detection, beep pattern, ringing screen (`alarm.c/.h`) |
+| `src/web/` | Setup web server (`webserver.c/.h`); the pages are `page.html/.css/.js` and `setup.html/.js`, `pages.h` and `certs.h` are generated and git-ignored |
 | `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |
 | `scripts/fonts/` | Source TTFs of both bitmap fonts (DejaVu Sans Bold, Roboto Medium) plus licenses |
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
+| `scripts/generate_web.py` | Regenerates `src/web/pages.h` from the page assets, called before every build |
 | `src/idf_component.yml` | Managed ESP-IDF dependencies |
 | `config.h.example` | Tracked config template |
 | `config.h` | Tracked local board settings, never a credential |

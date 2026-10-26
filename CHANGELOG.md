@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**New**
+
+- Daily alarm, set on the setup page (`ALARM_ENABLED`, `ALARM_HOUR`,
+  `ALARM_MINUTE`): own ringing screen, two rising tones, stops on a tap or a
+  long press, gives up after five minutes, a changed time applies at once.
+- The setup page, its stylesheet and scripts are ordinary files under
+  `src/web/`, inlined into `pages.h` before every build.
+
 ## 0.4.1 - 2026-10-25
 
 **Changed**

@@ -31,6 +31,8 @@ moonstation/
 │   │   └── pins.h
 │   ├── clock/
 │   │   └── clock.c/.h
+│   ├── alarm/
+│   │   └── alarm.c/.h
 │   ├── ui/
 │   │   ├── draw.c/.h
 │   │   └── font.h             (generated)
@@ -41,11 +43,16 @@ moonstation/
 │   │   └── weather_icons.c/.h
 │   └── web/
 │       ├── webserver.c/.h
-│       └── certs.h           (generated, git-ignored)
+│       ├── page.html/.css/.js  (settings page)
+│       ├── setup.html/.js      (first setup page)
+│       ├── pages.h            (generated, git-ignored)
+│       └── certs.h            (generated, git-ignored)
 ├── scripts/
 │   ├── build_slides.sh
 │   ├── generate_font.py
 │   ├── generate_cert.sh
+│   ├── generate_web.py
+│   ├── pio_generate_web.py
 │   └── fonts/
 │       ├── DejaVuSans-Bold.ttf
 │       ├── Roboto-Medium.ttf
@@ -131,6 +138,9 @@ the subset of values that makes sense at runtime.
 | `WEATHER_LAT` | `52.5200` | latitude the forecast is fetched for |
 | `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
 | `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
+| `ALARM_ENABLED` | `0` | alarm switch at boot (1 = on) |
+| `ALARM_HOUR` | `7` | local hour of the alarm (0-23) |
+| `ALARM_MINUTE` | `0` | minute of the alarm (0-59) |
 
 Optional WiFi settings enable NTP time sync for the clock mode. A box without
 them opens its setup access point on the first boot (see the web server
@@ -166,6 +176,10 @@ like this:
   time and skips WiFi/NTP while the window lasts. The wake at the end of the
   window syncs via NTP again; the RTC has no 32.768 kHz crystal on this board
   and drifts by seconds per day while asleep.
+- A pending alarm shortens the sleep to the alarm time
+  (`alarm_next_wake_us()` in `src/alarm/`), so an alarm inside the window still
+  rings: the wake-up reboots, the alarm screen lights up, and the next idle
+  pass sends the box back to sleep until the window ends.
 - The window and the displayed time use the local zone from
   `TIMEZONE_STD_OFFSET_HOURS` and `TIMEZONE_EU_DST`, applied as a POSIX TZ
   string in `apply_timezone()` before the compile time is interpreted.
@@ -348,6 +362,34 @@ Adding another mode works the same way: implement one `ui_mode_t` struct, link
 it into the cycle with the `next` field and it is picked up by the manager
 automatically.
 
+## Alarm
+
+A daily alarm at one local time. `settings_t` holds `alarm_enabled`,
+`alarm_hour` and `alarm_minute`; the setup page edits them as one time field.
+`src/alarm/alarm.c` owns everything else:
+
+- **Detection**: `alarm_on_wake()` runs first in every pass of the mode manager
+  loop and compares the local wall clock with the configured time. It accepts
+  a ring up to 60 s late, so a pass that was busy with a JPEG decode, a weather
+  request or the boot after a deep sleep wake-up still starts it, and it
+  remembers the day of the last ring (`last_rang`), so it cannot start twice
+  before midnight.
+- **Wake-up**: `alarm_next_wake_us()` returns the time to the next occurrence
+  (or one second while it rings). The mode manager takes the minimum of that
+  and the mode's own wake-up, and the deep sleep check clamps the sleep to an
+  alarm inside the night window.
+- **Ringing**: the alarm paints its own screen - the clock face plus a blinking
+  `ALARM` label and a `tap to stop` hint - so it looks the same in every mode.
+  The mode's `on_wake()` is skipped while it rings, the backlight stays at full
+  brightness, and the main task plays two rising tones every two seconds on the
+  codec. The beeps use at least 70 % volume, so a box whose feedback volume is
+  turned down still rings. A tap or a long press calls `alarm_dismiss()`; the
+  auto-stop follows after five minutes.
+- **Threads**: `alarm_on_wake()` and the beeps run in the main task,
+  `alarm_dismiss()` runs in the touch task and only clears the volatile flag.
+  Nothing plays a tone from the touch task while the alarm is up, so the codec
+  is never driven by two tasks.
+
 ## Weather mode
 
 `WEATHER_ENABLE` in `features.h` (on by default, `0` removes the step) puts a
@@ -413,6 +455,19 @@ shows. Nothing else in the firmware knows it exists.
   `scripts/generate_cert.sh` into `web/certs.h`, which is git-ignored, so no
   private key lands in the repository. The browser warns about the
   certificate; that is expected for a device without a domain.
+- **Pages**: the markup, the stylesheet and the scripts are plain files under
+  `src/web/` (`page.html`, `page.css`, `page.js` for the settings form,
+  `setup.html`/`setup.js` for the first login form). `scripts/generate_web.py`
+  turns them into `web/pages.h` - one `static const char` per file plus its
+  length - which `webserver.c` includes, so the pages live in flash and are
+  served with a single `httpd_resp_send()`. No filesystem, no partition,
+  nothing to mount, and no escaping of quotes in C. The generator runs from a
+  PlatformIO `extra_scripts` hook before every build and from
+  `src/CMakeLists.txt` at configure time; `pages.h` is git-ignored, editing
+  `page.css` and rebuilding is enough. Each file gets its own route (`/`,
+  `/page.css`, `/page.js`, `/setup.js`), all behind the same Basic auth, with
+  `Cache-Control: no-store` because the page and the API it talks to change
+  together.
 - **Sockets**: a TLS socket costs about 40 kB of RAM, so the pool holds two;
   if the heap cannot take the second one, the start retries with one.
 - **Auth**: HTTP Basic, checked against a header built once at start. The login
@@ -438,10 +493,12 @@ shows. Nothing else in the firmware knows it exists.
   has a placeholder in the config template; the setup page is the only way to
   set one.
 - **Layout**: the form is grouped into `fieldset`s with legends (Network,
-  Image show, Backlight, Clock and time, Weather, Sound and battery, Setup
-  access). The script only walks `form.elements`, so the grouping cannot affect
+  Image show, Backlight, Clock and time, Alarm, Weather, Sound and battery,
+  Setup access). `page.js` walks `form.elements`, so the grouping cannot affect
   loading or saving, and a new field only needs its markup plus an entry in
-  `FIELDS`.
+  `FIELDS`. The one exception is the alarm time: the page has a single
+  `<input type=time>` while the firmware stores `alarm_hour` and
+  `alarm_minute`, so `page.js` splits and joins that pair.
 - **Radio**: on the home network the server holds the link with
   `net_wifi_hold()` for as long as it listens, so the daily NTP sync cannot take
   the page down. Without a network it serves the page over the setup access

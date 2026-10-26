@@ -6,6 +6,7 @@
 #include "webserver.h"
 #include "net.h"
 #include "audio.h"
+#include "alarm.h"
 #include "clock.h"
 #include "weather.h"
 #include "esp_heap_caps.h"
@@ -638,6 +639,14 @@ static void on_touch_tap(void)
     last_interaction = esp_timer_get_time() / 1000000LL;
     display_backlight_set_brightness(settings.backlight_full_pct);
     last_brightness = settings.backlight_full_pct;
+    // While the alarm rings a tap only stops it: the mode keeps its state and
+    // redraws itself on the next pass. No tone here, the main task is playing
+    // the alarm beeps on the same codec.
+    if (alarm_is_ringing()) {
+        alarm_dismiss();
+        ui_force_redraw();
+        return;
+    }
     if (active_mode && active_mode->on_tap) {
         active_mode->on_tap();
     }
@@ -646,6 +655,16 @@ static void on_touch_tap(void)
 
 static void on_long_press(void)
 {
+    // Same rule as a tap: the ringing alarm owns the touch screen.
+    if (alarm_is_ringing()) {
+        last_interaction = esp_timer_get_time() / 1000000LL;
+        display_backlight_set_brightness(settings.backlight_full_pct);
+        last_brightness = settings.backlight_full_pct;
+        alarm_dismiss();
+        ui_force_redraw();
+        wake_main_task();
+        return;
+    }
     if (active_mode && active_mode->on_long_press) {
         active_mode->on_long_press();
     }
@@ -1028,10 +1047,16 @@ void slideshow_run(void)
         // either.
         if (settings.clock_deep_sleep_enable && active_mode == &clock_mode &&
             clock_deep_sleep_window_active() && !web_is_running() &&
+            !alarm_is_ringing() &&
             esp_timer_get_time() / 1000000LL - last_interaction >=
                 settings.backlight_deep_after_sec &&
             gpio_get_level((gpio_num_t)PIN_TP_INT) != 0) {
             int64_t sleep_us = clock_deep_sleep_window_end_us();
+            // A pending alarm must not be slept over: inside the window the
+            // box wakes at the alarm time instead of at the end of the
+            // window, rings and goes back to sleep on its next idle pass.
+            int64_t to_alarm_us = alarm_next_wake_us(esp_timer_get_time());
+            if (to_alarm_us < sleep_us) sleep_us = to_alarm_us;
             if (sleep_us > 1000000) {
                 ESP_LOGI(TAG, "deep sleep, window ends in %lld s",
                          (long long)(sleep_us / 1000000));
@@ -1047,10 +1072,27 @@ void slideshow_run(void)
         }
 #endif
 
-        active_mode->on_wake();
+        // The alarm has priority over the mode: it starts on its own and owns
+        // the screen while it rings, so the mode does not paint over it.
+        alarm_on_wake();
+        const bool ringing = alarm_is_ringing();
+        if (ringing) {
+            // Keep the screen lit while it rings, even after the idle schedule
+            // has dimmed it or a deep sleep wake-up left the backlight dark.
+            last_interaction = esp_timer_get_time() / 1000000LL;
+        } else {
+            active_mode->on_wake();
+        }
         update_backlight();
 
-        int64_t wake_us = active_mode->next_wake_us(esp_timer_get_time());
+        int64_t now_us = esp_timer_get_time();
+        int64_t wake_us = alarm_next_wake_us(now_us);
+        if (!ringing) {
+            // Not ringing, so this is the time to the next alarm (or
+            // INT64_MAX); the mode may want to wake earlier.
+            int64_t mode_us = active_mode->next_wake_us(now_us);
+            if (mode_us < wake_us) wake_us = mode_us;
+        }
         if (wake_us < 10000) wake_us = 10000;     // avoid a busy spin
         if (wake_us > 60000000) wake_us = 60000000; // cap the safety timeout
 

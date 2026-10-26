@@ -5,13 +5,27 @@ idf_component_register(
          "core/battery.c" "core/status.c" "core/net.c" "core/screenshot.c"
          "core/power.c"
          "ui/draw.c"
-         "clock/clock.c" "slideshow/slideshow.c"
+         "clock/clock.c" "alarm/alarm.c" "slideshow/slideshow.c"
          "weather/weather.c" "weather/weather_icons.c"
          "web/webserver.c"
-    INCLUDE_DIRS "." "config" "core" "ui" "clock" "slideshow" "weather" "web"
+    INCLUDE_DIRS "." "config" "core" "ui" "clock" "alarm" "slideshow" "weather" "web"
     REQUIRES esp_lcd fatfs esp_timer driver esp_adc esp_wifi esp_event esp_netif
              nvs_flash esp_https_server esp_http_client mbedtls
 )
+
+# The setup pages are plain HTML/CSS/JS files in web/. The generator turns them
+# into web/pages.h, which webserver.c includes; PlatformIO runs it before every
+# build (extra_scripts in platformio.ini), this call covers a plain idf.py
+# build. The header is git-ignored.
+execute_process(
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_web.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/web"
+    RESULT_VARIABLE PAGES_RESULT
+    OUTPUT_QUIET
+)
+if(NOT PAGES_RESULT EQUAL 0)
+    message(FATAL_ERROR "could not generate src/web/pages.h")
+endif()
 
 # The setup page runs over HTTPS with a self-signed certificate. The header
 # holding it is generated on the build machine and git-ignored, so a private
