@@ -16,4 +16,9 @@ sys.dont_write_bytecode = True
 
 import generate_web  # noqa: E402
 
-generate_web.generate(os.path.join(project_dir, "src", "web"))
+try:
+    generate_web.generate(os.path.join(project_dir, "src", "web"))
+except (OSError, ValueError) as exc:
+    # Fail the build with the include error instead of a Python traceback.
+    sys.stderr.write("generate_web.py: %s\n" % exc)
+    sys.exit(1)

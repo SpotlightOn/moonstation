@@ -42,14 +42,15 @@ static void spawn(bool start);
 //
 // The pages. They live as plain files next to this one, because a form, a
 // stylesheet and a script are easier to read, diff and edit than C string
-// literals with escaped quotes. scripts/generate_web.py turns them into
-// pages.h (generated, git-ignored), so the firmware carries them in flash:
-// serving one is a single httpd_resp_send() of a few kB - no filesystem, no
-// partition, nothing to mount, and no heap for a copy.
+// literals with escaped quotes. scripts/generate_web.py expands their
+// <!-- include: ... --> directives and turns the result into pages.h
+// (generated, git-ignored), so the firmware carries one document per page in
+// flash: serving it is a single httpd_resp_send() of a few kB - no filesystem,
+// no partition, nothing to mount, and no heap for a copy.
 //
-// They are separate requests; the page keeps the connection open, so with the
-// two TLS sockets of WEB_SOCKETS the browser fetches HTML, CSS and JS one after
-// the other, as it does for any other page.
+// CSS and JavaScript are inlined into that document, so the browser needs one
+// request per page instead of one per asset. With two TLS sockets that keeps
+// both sockets free for other clients while a page is open.
 //
 
 static esp_err_t send_page(httpd_req_t *req, const char *data, size_t len,
@@ -329,27 +330,6 @@ static esp_err_t index_get(httpd_req_t *req)
     return send_page(req, page_html, page_html_len, "text/html");
 }
 
-static esp_err_t css_get(httpd_req_t *req)
-{
-    if (!auth_ok(req)) return deny(req);
-    touch_activity();
-    return send_page(req, page_css, page_css_len, "text/css");
-}
-
-static esp_err_t page_js_get(httpd_req_t *req)
-{
-    if (!auth_ok(req)) return deny(req);
-    touch_activity();
-    return send_page(req, page_js, page_js_len, "text/javascript");
-}
-
-static esp_err_t setup_js_get(httpd_req_t *req)
-{
-    if (!auth_ok(req)) return deny(req);
-    touch_activity();
-    return send_page(req, setup_js, setup_js_len, "text/javascript");
-}
-
 static esp_err_t config_get(httpd_req_t *req)
 {
     if (!auth_ok(req)) return deny(req);
@@ -605,15 +585,6 @@ static esp_err_t shutdown_post(httpd_req_t *req)
 static const httpd_uri_t URI_INDEX = {
     .uri = "/", .method = HTTP_GET, .handler = index_get,
 };
-static const httpd_uri_t URI_CSS = {
-    .uri = "/page.css", .method = HTTP_GET, .handler = css_get,
-};
-static const httpd_uri_t URI_PAGE_JS = {
-    .uri = "/page.js", .method = HTTP_GET, .handler = page_js_get,
-};
-static const httpd_uri_t URI_SETUP_JS = {
-    .uri = "/setup.js", .method = HTTP_GET, .handler = setup_js_get,
-};
 static const httpd_uri_t URI_CONFIG_GET = {
     .uri = "/api/config", .method = HTTP_GET, .handler = config_get,
 };
@@ -747,9 +718,6 @@ static bool start_server(void)
     }
 
     httpd_register_uri_handler(server, &URI_INDEX);
-    httpd_register_uri_handler(server, &URI_CSS);
-    httpd_register_uri_handler(server, &URI_PAGE_JS);
-    httpd_register_uri_handler(server, &URI_SETUP_JS);
     httpd_register_uri_handler(server, &URI_CONFIG_GET);
     httpd_register_uri_handler(server, &URI_CONFIG_POST);
     httpd_register_uri_handler(server, &URI_SHUTDOWN);
