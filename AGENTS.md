@@ -8,8 +8,11 @@ ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240 round
 display), built with PlatformIO. Features: an endless slideshow of 240x240 JPEG
 images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
 by a long press on the touch screen, an optional weather mode (OpenWeather,
-current conditions and a 24-hour forecast, tap to flip pages), PWM backlight
-dimming, and audio feedback. Touch and the built-in speaker must be functional.
+current conditions and a 24-hour forecast, tap to flip pages), an optional
+internet radio that plays MP3 streams from `.pls` files in `/radio` on the card
+(tap the drawn button to pause, swipe sideways to change station), PWM
+backlight dimming, and audio feedback. Touch and the built-in speaker must be
+functional.
 A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 192.168.4.1) and serves the setup page there, so the first setup needs no cable.
 
@@ -43,6 +46,7 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`) |
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
 | `src/weather/` | Weather mode: request, NVS cache, rendering (`weather.c/.h`) and icons (`weather_icons.c/.h`) |
+| `src/radio/` | Radio mode: mode and screen (`radio.c/.h`), HTTP/decode tasks with the ring buffer (`stream.c/.h`), `.pls` parser (`pls.c/.h`) |
 | `src/alarm/` | Daily alarm: detection, beep pattern, ringing screen (`alarm.c/.h`) |
 | `src/web/` | Setup web server (`webserver.c/.h`); the pages are `page.html/.css/.js` and `setup.html/.js`, `pages.h` and `certs.h` are generated and git-ignored |
 | `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |

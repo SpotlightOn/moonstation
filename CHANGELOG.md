@@ -9,6 +9,8 @@
   long press, gives up after five minutes, a changed time applies at once.
 - A third weather page with the next five days: weekday, icon, high and low,
   aggregated from the 3-hour steps of the free forecast.
+- Volume by gesture in every mode: swipe up or down for 5 % steps, with a bar
+  on screen for 1.5 s; the level survives a reboot.
 - The setup page, its stylesheet and scripts are ordinary files under
   `src/web/`, inlined into `pages.h` before every build.
 

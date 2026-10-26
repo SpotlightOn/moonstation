@@ -34,9 +34,14 @@ opens its own access point and serves that page there.
   in on that page, stored in NVS and never shown again (write-only fields). The
   factory login `admin` / `admin` must be replaced on the first visit
 - Long press (held over 0.5 s, released) cycles through clock, slideshow,
-  combined clock+slideshow and (if built in) weather modes; it boots into clock
-  mode. Only a hold that stays on for the full 5 s goes to the setup page
-  instead, so a quick press can never open it by accident
+  combined clock+slideshow, weather and radio modes (the last two if built
+  in); it boots into clock mode. Only a hold that stays on for the full 5 s
+  goes to the setup page instead, so a quick press can never open it by
+  accident
+- Volume by gesture in every mode: a swipe up is louder, a swipe down quieter
+  in 5 % steps - one step per 40 px of travel, at most five per swipe. A bar
+  shows the new level for a second and a half. The level is stored, so it
+  survives a reboot
 - Daily alarm at a local time, set on the setup page. It beeps and shows its
   own screen in every mode, stops on a tap and by itself after five minutes; a
   pending alarm also wakes the box from its night deep sleep
@@ -46,6 +51,15 @@ opens its own access point and serves that page there.
   Refreshed every 20 minutes by default and cached in NVS, so the mode still
   shows the last reading after a reboot without WiFi. Without a key it shows a
   hint instead
+- Radio mode (`RADIO_ENABLE` in `src/config/features.h`, on by default): plays
+  MP3 internet radio from `.pls` playlists on the SD card, one file per
+  station. A drawn button in the middle of the screen plays and pauses, a tap
+  above it is louder and below it quieter, a horizontal swipe changes the
+  station, and sliding still sets the volume as in every mode - so a tap that
+  was meant as a slide never stops the station. Missing playlists, missing WiFi
+  or an unreachable station each get their own line on screen; the mode keeps
+  retrying in the background. Plain `http://` only, no TLS, and nothing plays
+  once the long press leaves the mode
 - Clock mode shows the time, the weekday and the date, with a small jitter for
   burn-in prevention
 - Battery indicator below the date: icon with the charge level, the percentage
@@ -111,9 +125,10 @@ closes itself after 15 minutes without a request, or immediately on another
 5 s hold.
 
 Everything the owner tunes lives there: WiFi credentials, the login, the
-weather key and position, slideshow directory and interval, crossfade,
-backlight levels and delays, night window and deep sleep, NTP and timezone,
-daily alarm, audio volume, battery warning level and the idle timeout. All of
+weather key and position, slideshow and radio directories, interval,
+crossfade, backlight levels and delays, night window and deep sleep, NTP and
+timezone, daily alarm, audio volume, battery warning level and the idle
+timeout. All of
 it is stored in NVS and applied without a reboot; only WiFi waits for the next
 server start
 (the box restarts itself when it was configured over its own access point).
@@ -163,6 +178,7 @@ firmware without `config.h` behaves exactly like the fallbacks in that file.
 | `WEATHER_LAT` | `52.5200` | latitude the forecast is fetched for |
 | `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
 | `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
+| `RADIO_DIR` | `/radio` | folder with the `.pls` playlists of the radio mode |
 | `ALARM_ENABLED` | `0` | alarm switch at boot (1 = on) |
 | `ALARM_HOUR` | `7` | local hour of the alarm (0-23) |
 | `ALARM_MINUTE` | `0` | minute of the alarm (0-59) |
@@ -258,8 +274,14 @@ as an AI desktop assistant running Xiaozhi.
 - Empty or missing image directory: yellow screen, rescan every 2 seconds
 - Unreadable or corrupt JPEG: skipped, next image shown
 - Touch advances to the next slide immediately
-- Long press cycles clock -> slideshow -> clock+slideshow -> weather (if built
-  in) -> clock; the switch redraws immediately
+- A vertical swipe anywhere changes the volume, one 5 % step per 40 px of
+  travel (at most five), shown as a bar in the middle of the screen for 1.5 s;
+  a horizontal swipe belongs to the mode and never counts as a tap
+- In the radio mode the drawn button in the middle of the screen plays and
+  pauses, a tap above it is louder and below it quieter, and a horizontal swipe
+  changes the station
+- Long press cycles clock -> slideshow -> clock+slideshow -> weather -> radio
+  (the last two if built in) -> clock; the switch redraws immediately
 - Weather mode taps flip between current conditions and the 24-hour forecast;
   the long press still changes the mode
 - The alarm rings once a day at its local time with two rising tones every two

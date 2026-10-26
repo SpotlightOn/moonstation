@@ -4,11 +4,14 @@
 #include "esp_err.h"
 #include <stdbool.h>
 
-typedef void (*touch_tap_cb_t)(void);
+typedef void (*touch_tap_cb_t)(int x, int y);
 typedef void (*touch_long_cb_t)(void);
 typedef void (*touch_setup_cb_t)(void);
 typedef void (*touch_swipe_cb_t)(int dx, int dy, int duration_ms);
 
+// Fires on release of a touch that did not move (see TOUCH_SWIPE_MIN_PX) and
+// lasted less than TOUCH_TAP_MAX_MS. x/y is where the finger landed, in panel
+// pixels, so a mode can turn parts of the screen into buttons.
 esp_err_t touch_init(touch_tap_cb_t tap_cb);
 void touch_set_long_press_cb(touch_long_cb_t cb);
 

@@ -28,6 +28,9 @@ int draw_text_width(const char *s);
 void draw_text(const char *s, int x, int y, uint16_t color, uint16_t *fb);
 // Same, horizontally centered, with dx as an optional offset in pixels.
 void draw_text_center(const char *s, int y, int dx, uint16_t color, uint16_t *fb);
+// Centered and shortened to max_w pixels, the cut marked with two dots.
+void draw_text_center_fit(const char *s, int y, int max_w, uint16_t color,
+                          uint16_t *fb);
 
 // Clock digits: fixed 35x52 cells, one bit per pixel, no antialiasing.
 int draw_time_height(void);

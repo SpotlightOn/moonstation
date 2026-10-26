@@ -1,7 +1,10 @@
 # Radio mode: plan
 
-Status: planned, not implemented. This is the design agreed before the first
-line of code; `docs/development.md` gets the section once the mode exists.
+Status: implemented. Gesture layer, volume control and on-screen display
+(step 1), the codec stream API (step 2), the playlist parser and the stream
+tasks (step 3) and the mode with its screen (step 4) are in the firmware and
+run on the box; `docs/development.md` has the section a maintainer needs. What
+is left is polish, listed under "Later".
 
 ## Goal
 
@@ -17,7 +20,7 @@ Scope of the first version:
 | MP3 (MPEG-1/2 Layer III), 32-320 kbit/s, 44.1/48 kHz, mono and stereo | AAC, HE-AAC, Opus, Ogg Vorbis |
 | `http://` streams | `https://` (TLS heap and CPU) |
 | `.pls` playlists from `/radio` on the SD card | `.m3u`, `.xspf`, directories, nested folders |
-| Gestures: tap, swipe left/right, swipe up/down, long press | Drawn buttons, ICY titles, recording |
+| Gestures: tap, swipe left/right, swipe up/down, long press | Station list screen, ICY titles, recording |
 
 MP3 first is a size decision, not a taste one: `chmorgan/esp-libhelix-mp3`
 (the reference decoder, in most ESP32 players) is a pure C decoder of about
@@ -58,9 +61,18 @@ plain MP3 elementary stream and the decoder never sees text between frames.
 read in a loop instead of `esp_http_client_perform()`, which would block until
 the stream ends - and a radio stream never ends.
 
-The stream runs in its own task (8 kB stack, priority 5, fixed to the same
-core as the mode manager is not required). The main task keeps running the
-mode manager, so the display, the alarm and the touch keep working while audio
+Two tasks, not one: a network task reads 4 kB blocks into the ring and is
+allowed to wait as long as the server needs, a decoder task takes frames out of
+the ring, decodes them and writes the PCM. They are separate because
+`esp_http_client_read()` only returns once it has read the **full** requested
+length - a blocking read inside the decode loop silences the I2S DMA and is
+heard as a gap. Measured during the spike: with 48 kB reads the audio ran at
+7.4 s per 12 s of wall clock, with a gap every three seconds; after the split
+it was 12.0 s per 12 s with no gap.
+
+The decoder task has an 8 kB stack (the PCM frame alone is 4.6 kB) and priority
+5, the network task 4 kB and priority 4. The main task keeps running the mode
+manager, so the display, the alarm and the touch keep working while audio
 plays.
 
 ## Playlists
@@ -86,8 +98,11 @@ Rules of the first version:
 - One file is one station. `File1` is the address that plays, `File2`..`FileN`
   are mirrors that are tried when `File1` fails. This matches how Shoutcast
   directories hand out playlists today.
-- The name on screen is `Title1`, falling back to the file name without its
-  extension, cut to what fits the panel.
+- The name on screen is the file name without its extension: that is what the
+  owner of the card chose, and it is short. `Title1` is only a subtitle, cut to
+  what fits; many stations put a whole description in it (the SomaFM files on
+  the test card carry "SomaFM: Groove Salad Classic (#1): The ..." there, a
+  truncated sentence that is useless as a name).
 - Only absolute `http://` entries are used. A relative entry, an `https://`
   entry or a broken URL marks that mirror as unusable; the screen then says so
   instead of trying.
@@ -96,29 +111,37 @@ Rules of the first version:
   does the same), so switching stations never waits for a remount. No file
   stays open between two reads.
 
-Parsing ~120 lines in `src/radio/pls.c`: read line by line with `fgets`, trim
-`\r\n`, match the key case-insensitively, keep the first 32 usable entries.
-File names come from `readdir`, capped and sorted with `qsort`.
+Parsing in `src/radio/pls.c`: read line by line with `fgets`, trim `\r\n`,
+match the key case-insensitively, keep up to four usable mirrors per station.
+File names come from `readdir`, capped at 32 and sorted with `qsort`.
 
-**To confirm before the code is written:** a `.pls` from a radio directory
-lists mirrors of one station, which is what this plan assumes. If the files
-should instead list several different stations, the gesture set changes (a tap
-inside the mode would switch station, not pause) and the parser keeps every
-`FileN` as a station of its own. Everything else stays the same.
+Confirmed on the real card: the seven files in `/radio` are one station each,
+and the SomaFM ones list four mirrors of the same stream
+(`ice1`..`ice6.somafm.com/<name>-128-mp3`). The assumption holds, so one file
+stays one station and the mirror list is only used for the retry chain.
 
 ## Gestures
 
-The panel is the touch surface; there are no fixed buttons, and drawing three
-small ones on 240 px is worse than a swipe. The gestures are the same in every
-mode, so they live above the mode, not inside the radio:
+The panel is the touch surface; there are no physical buttons. The gestures are
+the same in every mode, so they live above the mode, not inside the radio - with
+one exception: the radio draws its own play/pause button, because on this
+controller a tap is easy to produce by accident (see `TOUCH_SWIPE_MIN_PX`: the
+first version of the mode had taps anywhere as play/pause and paused itself in
+the middle of a volume slide).
 
 | Gesture | Everywhere | In the radio mode |
 | --- | --- | --- |
-| Tap (< 500 ms, no movement) | mode-specific | play / pause |
-| Swipe left / right | - | previous / next playlist |
-| Swipe up / down | volume +/- 5 % with a bar | volume +/- 5 % with a bar |
+| Tap on the drawn button (< 500 ms, no movement) | mode-specific | play / pause |
+| Tap above the button | volume +10 % | volume +10 % |
+| Tap below the button | volume -10 % | volume -10 % |
+| Swipe left / right | - | previous / next station |
+| Swipe up / down | volume, one 5 % step per 40 px | same |
 | Long press (>= 500 ms) | next mode | next mode |
 | Hold 5 s without moving | setup page | setup page |
+
+The split is deliberate: the destructive action (stopping the station) gets the
+small, visible target in the middle of the screen, while every other tap only
+changes the volume - a mistake there costs one OSD bar, not the stream.
 
 Implementation in `touch.c`:
 
@@ -126,14 +149,21 @@ Implementation in `touch.c`:
   just the position at release: the controller reports about every 100 ms, so a
   fast flick leaves only one or two samples.
 - On release, in this order: a setup hold wins, then a moved touch with
-  `max(|dx|, |dy|) >= TOUCH_SWIPE_MIN_PX` (50) and a duration below
-  `TOUCH_SWIPE_MAX_MS` (1000) is a swipe along the dominant axis, then the
-  existing tap or long press. A swipe therefore never fires a tap.
+  `max(|dx|, |dy|) >= TOUCH_SWIPE_MIN_PX` (25) is a swipe along the dominant
+  axis, then the existing tap or long press. A swipe therefore never fires a
+  tap or a mode switch, no matter how long the finger took to get there.
+- The duration deliberately plays no part in that decision. A volume slide is
+  a slow, careful movement and easily takes longer than a second; judging by
+  time turned such a slide into a long press and threw the radio out of its
+  own mode. Distance alone is what separates a gesture from a press.
 - A swipe already cancels the setup gesture (`TOUCH_SETUP_MOVE_PX` is 40), so
   the two cannot collide.
 - New callback `touch_set_swipe_cb(cb)` with `(dx, dy, duration_ms)`, fired once
-  per gesture. One swipe is one step; holding a finger and dragging further
-  does not repeat.
+  per gesture, and the volume turns the travel into steps (one per 40 px, at
+  most five). On a 240 px panel a slide is the natural gesture, and each extra
+  gesture is one more chance to hit the pause by accident.
+- The tap callback carries the landing point (`tap_cb(x, y)`), so a mode can
+  turn parts of the screen into buttons without guessing where the finger was.
 
 Threading: callbacks run in the touch task, and the display must not be pushed
 from two tasks. The swipe callback therefore only records a pending step (a
@@ -192,14 +222,18 @@ Reconnecting | Failed)`.
   task, no error churn.
 - `radio_exit()`: stop the task, close the codec, release power and WiFi, free
   the ring buffer. Nothing plays outside the mode.
-- Tap: toggle pause (task stops reading and the codec is closed after a short
-  fade-less stop; the buffer keeps its content).
+- Tap on the button: toggle pause (the task stops reading and the codec is
+  closed; resuming reconnects). A tap anywhere else changes the volume, so the
+  station never stops because a slide was read as a tap.
+- Station changes and pause come from the main task, which owns the mode; the
+  touch callback only stores the request and the point it landed on.
 - Swipe left/right: previous/next playlist, wraps around, starts immediately.
 - Failure: retry the same URL after 2 s, then 5 s, then 10 s, then the next
-  mirror; after all mirrors the screen says "Station unreachable" and a tap
-  retries. A stream that plays again resets the backoff.
-- Underrun: playback waits until ~8 kB are buffered (~0.5 s) and resumes; the
-  screen shows "Buffering" meanwhile.
+  mirror; while it fails the screen says `No signal` and a tap on the button
+  retries at once. A stream that plays again resets the backoff.
+- Underrun: the decoder starts once ~24 kB (~1.2 s) are in the ring and waits
+  for more when it runs empty; the screen shows "Buffering" meanwhile. The ring
+  is 64 kB, about three seconds at 160 kbit/s.
 - Sample rate and bitrate come from the first decoded frame and shown on
   screen; the codec is opened with that rate once per station.
 
@@ -207,25 +241,29 @@ Screen (screenshot name `radio`), top to bottom, centred:
 
 | y | Content |
 | --- | --- |
-| 70 | station title, cut to fit |
-| 100 | `Playing`, `Paused`, `Buffering`, `No signal` |
-| 130 | `MP3 128 kbit/s 44.1 kHz` |
-| 162 | `2 / 5` playlist position, dim |
+| 8 | `VOL +`, dim - the louder half of the screen |
+| 54 | station name (file name), cut to fit |
+| 78 | `Title1`, cut, dim - omitted when empty |
+| 96..144 | button: ring with pause bars (`playing`) or a play triangle |
+| 152 | `Playing`, `Paused`, `Buffering`, `No signal` |
+| 174 | `MP3 160 kbit/s 44.1 kHz` |
+| 196 | `2 / 7` station position, dim |
+| 214 | `VOL -`, dim - the quieter half |
 
 ## Audio path and codec ownership
 
-The codec is currently opened and closed around every tone. The radio keeps it
-open, so the two have to agree:
+The codec used to be opened and closed around every tone. The radio keeps it
+open, so the two have to agree - this part is implemented in `audio.c`:
 
 - `audio_stream_begin(int sample_rate)`, `audio_stream_write(const void *pcm,
-  size_t bytes)`, `audio_stream_end()` in `audio.c`. `begin` opens the codec
-  with `esp_codec_dev_sample_info_t` at the stream's rate, two channels, 16 bit.
+  size_t bytes)`, `audio_stream_end()`. `begin` opens the codec with
+  `esp_codec_dev_sample_info_t` at the stream's rate, two channels, 16 bit.
 - A mutex in `audio.c` guards open/close/write, because the decode task and the
   main task (alarm beeps, feedback tones) both use the codec.
-- Before a tone plays, `audio_play_tone_at()` asks the radio to pause: a flag
-  plus a semaphore, so the decode task stops writing and releases the lock, the
-  tone plays, then the stream resumes. Without that, an alarm in the middle of
-  a song would either be silent or click.
+- A tone that arrives while a stream is open is written into the same codec at
+  the stream's rate: the decoder waits on the lock for the duration of the
+  tone and resumes afterwards, so an alarm never clicks and never changes the
+  rate under the decoder.
 - Mono streams are duplicated to stereo in the decode loop; the ES8311 path
   stays at two channels either way.
 
@@ -259,11 +297,12 @@ open, so the two have to agree:
 
 | Step | Lines | Order |
 | --- | --- | --- |
-| Swipe callback, shared volume step, OSD | ~280 | 1 |
-| Codec stream API and mutex | ~90 | 2 |
-| Spike: one hardcoded stream plays | ~120 | 3 |
-| Playlist scan, parser, mode and screen | ~400 | 4 |
-| Reconnect, underrun, docs, changelog | ~120 | 5 |
+| Swipe callback, shared volume step, OSD | ~280 | 1, done |
+| Codec stream API and mutex | ~90 | 2, done |
+| Spike: one hardcoded stream plays | ~200 | 3, done |
+| Playlist scan, parser | ~150 | 3, done |
+| Mode, screen, gestures, settings | ~350 | 4, done |
+| Reconnect, underrun, docs, changelog | ~120 | 5, part of 4 |
 
 Steps 1 and 2 are useful without the radio (volume gesture in every mode),
 which is why they come first and get their own commit.
@@ -271,8 +310,8 @@ which is why they come first and get their own commit.
 ## Risks
 
 1. **Component vs IDF 6.1**: `esp-libhelix-mp3` 1.0.3 is tested against IDF 5.x.
-   It is plain C with no IDF API use, so the risk is low, but the spike has to
-   prove it compiles and decodes. `chmorgan/esp-audio-player` 2.0.0 would save
+   It is plain C with no IDF API use, and the spike proved it compiles and
+   decodes 44.1 kHz stereo on IDF 6.1. `chmorgan/esp-audio-player` 2.0.0 would save
    the HTTP loop, but adds a dependency that is also only tested on 5.x; the
    direct helix loop stays the fallback.
 2. **Fast swipes**: the controller reports at roughly 10 Hz. The classifier uses

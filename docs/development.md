@@ -311,18 +311,38 @@ reports ~8.3 MB in the logs. The internal-only figure is
 
 CST816D on I2C port 1. Touch is interrupt driven: the controller's INT line
 (GPIO 12, falling edge) wakes a dedicated task that reads the controller over
-I2C, so the normal path costs only two wake-ups per interaction. Taps and long
-presses fire on release: a tap is a hold under 0.5 s, a longer one switches the
-mode. Deferring both keeps a deliberate hold free for the setup gesture, where
-the finger has to stay at one spot for 5 s. If no release interrupt arrives,
-the task falls back to slow 100 ms polling until the finger is lifted. Touch is
-optional: missing hardware is logged and ignored.
+I2C, so the normal path costs only two wake-ups per interaction. Taps, swipes
+and long presses fire on release: a tap is a hold under 0.5 s that did not
+move, a longer one at the same spot switches the mode, and a touch that moved
+at least `TOUCH_SWIPE_MIN_PX` (25 px) is a swipe - however long it took. The
+time is not part of that decision on purpose: a careful volume slide is slow,
+and a time limit turned it into a mode switch in the middle of a station. Deferring all three keeps a deliberate hold free
+for the setup gesture, where the finger has to stay at one spot for 5 s. If no
+release interrupt arrives, the task falls back to slow 100 ms polling until the
+finger is lifted; the same poll runs from the moment a finger lands, so a fast
+flick is sampled even if the controller only reports its landing point. A swipe
+never also fires a tap or a mode switch, and it cancels the setup gesture like
+any other movement. Touch is optional: missing hardware is logged and ignored.
 
 ## Audio
 
-ES8311 on I2C port 0 plus I2S. The codec is opened per tone and closed
-afterwards so the PA stays off when idle. `audio_play_tone(freq, ms)` generates
-a sine wave.
+ES8311 on I2C port 0 plus I2S. A tone is opened per call and the codec is
+closed afterwards so the PA stays off when idle; `audio_play_tone(freq, ms)`
+generates a sine wave at 24 kHz.
+
+A decoder can keep the codec open instead. `audio_stream_begin(rate)` opens it
+once at the stream's rate - the I2S data interface reconfigures its clock, so
+44.1 or 48 kHz work next to the 24 kHz tones - `audio_stream_write(pcm, bytes)`
+blocks until the DMA has room and therefore paces the decode loop, and
+`audio_stream_end()` closes it again. PCM is interleaved 16 bit stereo.
+
+One mutex guards the codec, because tones come from the touch task and the mode
+manager while a stream comes from the decoder task. A tone that arrives while a
+stream is open is written into the same codec at the stream's rate instead of
+re-opening it, so an alarm neither clicks nor changes the rate under the
+decoder; the decoder simply waits on the lock and continues afterwards. The
+tone is generated in blocks of 512 samples on the heap: the touch task has a
+3 kB stack and must not build a long tone in one piece.
 
 ## Battery
 
@@ -361,6 +381,41 @@ next wake-up time to `weather.c`, plus the usual `next` link in the cycle.
 Adding another mode works the same way: implement one `ui_mode_t` struct, link
 it into the cycle with the `next` field and it is picked up by the manager
 automatically.
+
+## Volume gesture and overlay
+
+A vertical swipe changes the output volume by 5 % steps in every mode, a swipe
+up being louder. The travel decides how many steps one gesture is worth: one
+step per `VOLUME_STEP_PX` (40 px), at least one and at most `VOLUME_MAX_STEPS`
+(5) per gesture. A slide across most of the panel is therefore a quarter of the
+range, and a short flick still nudges it. The gesture lives in the mode manager,
+not in a mode: the touch callback in `slideshow.c` only counts steps and wakes
+the main loop, which applies them to `settings.audio_volume`, pushes the new
+value to `audio.c` (`audio_set_volume()` works on an open codec too, so a
+running stream follows) and writes the settings back to NVS once per gesture.
+Horizontal swipes belong to the mode that wants them - the radio uses them to
+change station; a mode without a swipe callback ignores them.
+
+Two rules keep it from getting in the way: while the alarm rings the gesture is
+ignored, because the alarm enforces `ALARM_MIN_VOLUME_PCT` and a lower setting
+would only make the bar lie; and a swipe counts as an interaction, so it also
+lights the display at full brightness.
+
+The bar itself is `src/ui/osd.c`, an overlay that works in every mode without
+the mode knowing about it:
+
+- The covered rectangle (152x64 px in the middle of the panel) is copied into
+  PSRAM, the bar is drawn into the shared frame buffer and only that rectangle
+  is pushed to the panel.
+- After 1.5 s the copy is put back. A checksum of the rectangle as it was drawn
+  decides whether that is still safe: if a mode painted over the overlay in the
+  meantime, the restore is dropped instead of putting old pixels over newer
+  ones. No mode has to report its own pushes for that.
+- The deadline feeds the mode manager's wake-up calculation
+  (`osd_next_wake_us()`), so no timer of its own is needed.
+
+Everything here runs in the main task; the touch task only leaves the pending
+steps behind, the same rule the modes follow for the display.
 
 ## Alarm
 
@@ -434,6 +489,61 @@ reading, so leaving it on costs nothing.
   the fixed-cell clock font, so it lines up with the clock mode, and the degree
   mark is a small ring after the digits. Body text uses the proportional text
   font.
+
+## Radio mode
+
+`RADIO_ENABLE` in `features.h` (on by default, `0` removes the step) puts a
+fifth step into the cycle. The module in `src/radio/` is compiled either way,
+so CI keeps checking it; the switch only decides whether the mode joins the
+cycle. Without playlists the mode still enters and shows a hint, so leaving it
+on costs nothing.
+
+- **Stations**: `radio_enter()` mounts the card (it stays mounted), scans
+  `RADIO_DIR` (default `/radio`) with `pls_scan()` and keeps the result in a
+  PSRAM array. One `.pls` file is one station, sorted by file name, up to 32.
+  `File1` plays, `File2..N` are mirrors of the same stream; only absolute
+  `http://` addresses are used. The screen name is the file name without its
+  extension, `Title1` is the second, dimmer line (many stations put a whole
+  description there).
+- **Playback** (`src/radio/stream.c`): two tasks share a 64 kB ring in PSRAM.
+  The network task reads 4 kB blocks and may block for as long as the server
+  needs; the decoder task takes frames out of the ring and writes PCM through
+  the codec stream API. The split is not cosmetic:
+  `esp_http_client_read()` returns only after it has read the **full**
+  requested length, so a read inside the decode loop starves the I2S DMA.
+  Measured with one task and 48 kB reads: 7.4 s of audio per 12 s of wall
+  clock, a gap every three seconds; with the split: 12.0 s per 12 s and no
+  gap. The decoder has an 8 kB stack (a stereo PCM frame alone is 4.6 kB) and
+  priority 5, the network task 4 kB and priority 4. A read timeout of 1 s
+  bounds how long `stream_stop()` waits for the network task, and 10 s without
+  a byte counts as a dead station.
+- **States**: `Connecting -> Buffering -> Playing`, plus `Paused` and
+  `No signal`. Playback starts once 24 kB are buffered (~1.2 s at
+  160 kbit/s). The screen is redrawn on a change only; `radio_next_wake_us()`
+  asks for a 200 ms wake while connecting or buffering and 2 s while playing,
+  so a stream that dies silently still shows up quickly.
+- **Gestures**: the mode draws its own play/pause button in the middle of the
+  screen, and only a tap inside that button (38 px radius) plays or pauses.
+  Every other tap changes the volume: above the button it is louder, below it
+  quieter, two 5 % steps each, through `slideshow_volume_steps()` so the bar
+  and the single NVS write stay in the mode manager. The split exists because
+  the controller reports some slides as a tap; with tap-anywhere as pause the
+  station stopped itself in the middle of a volume gesture. Pausing really
+  stops the stream and closes the codec (the PA stays off); resuming
+  reconnects, which is what a live stream wants anyway and keeps the code free
+  of a paused-network state. A horizontal swipe changes the station and wraps
+  around (`on_swipe` in the mode struct), the vertical swipes stay the volume
+  gesture, and the long press keeps cycling the modes, as everywhere.
+- **Failures**: 2 s, 5 s, 10 s and then every 10 s, rotating through the
+  mirrors of the station. A tap on the button retries immediately. Without WiFi the producer
+  reports "No WiFi" and the next attempt tries `net_wifi_up()` again, so the
+  mode recovers by itself once the network is back.
+- **Power**: the stream tasks take `POWER_PROFILE_BOOST` and `net_wifi_hold()`
+  while they run and release both when they end - a paused or failed radio
+  does not keep the CPU at 240 MHz or the WiFi out of power save.
+- **Settings**: `RADIO_DIR` in `config.h.example` with an `#ifndef` fallback in
+  `settings.c`, `settings.radio_dir`, `SETTINGS_VERSION` 7 and one field on the
+  setup page.
 
 ## Setup mode and status dot
 

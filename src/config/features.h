@@ -66,6 +66,16 @@
 #define WEATHER_ENABLE 1
 #endif
 
+// Radio mode (1 = on, 0 = off). One adds the fifth mode to the long-press
+// cycle: an internet radio that plays the MP3 streams of the .pls files in
+// RADIO_DIR on the SD card. Tap plays and pauses, a horizontal swipe changes
+// the station. Without playlists or WiFi the mode shows a hint instead of a
+// stream, so it costs nothing to leave on; zero leaves the module out of the
+// cycle and the other modes untouched.
+#ifndef RADIO_ENABLE
+#define RADIO_ENABLE 1
+#endif
+
 // Frame buffer dump for layout debugging (1 = on, 0 = off). On, the firmware
 // writes the frame after every mode switch as a BMP to /sdcard/screens, so the
 // picture can be looked at on a computer without a camera in front of the

@@ -7,5 +7,8 @@ dependencies:
   # cJSON moved out of the IDF tree, the weather mode needs it to read the
   # OpenWeather answers.
   espressif/cjson: "^1.7.19"
+  # MP3 decoder of the radio mode: fixed point, about 30 kB, no IDF APIs. The
+  # component is pure C, so it does not care about the IDF version.
+  chmorgan/esp-libhelix-mp3: "^1.0.3"
   idf:
     version: ">=6.0.0"

@@ -20,8 +20,11 @@
 #define TOUCH_SETUP_SETTLE_MS 400  // time a landing finger gets to calm down
 #define TOUCH_SETUP_MOVE_PX 40     // drift away from the settled position
 #define TOUCH_SETUP_SLIDE_PX 20    // motion within one poll, catches a swipe
-#define TOUCH_SWIPE_MIN_PX 50      // travel that counts as a swipe, not a tap
-#define TOUCH_SWIPE_MAX_MS 1000    // longer travel is a drag, not a swipe
+// A tenth of the panel is deliberate movement, a real tap stays under 10 px.
+// The limit used to be 50 px, which swallowed the start of many a slide and
+// let the release fall through to a tap - in the radio mode that meant a
+// station paused itself in the middle of a volume gesture.
+#define TOUCH_SWIPE_MIN_PX 25      // travel that counts as a swipe, not a tap
 
 static const char *TAG = "touch";
 static i2c_master_bus_handle_t bus = NULL;
@@ -187,6 +190,7 @@ static void handle_touch(void)
         esp_timer_stop(hold_timer);
         esp_timer_stop(setup_timer);
         int64_t dur = now - touch_start_ms;
+        ESP_LOGI(TAG, "release after %d ms, %d px travel", (int)dur, far_px);
         // Safety net for a setup hold whose timer callback lost the race
         // against the release.
         if (fire_setup || (setup_armed && dur >= TOUCH_SETUP_HOLD_MS)) {
@@ -194,16 +198,22 @@ static void handle_touch(void)
             if (setup_armed && !setup_fired) fire_setup_gesture();
         }
         if (!long_fired) {
-            // A moved touch is a swipe, not a tap and not a mode switch. The
-            // setup hold above already owns a still finger, which is why
-            // long_fired suppresses the swipe as well.
-            if (far_px >= TOUCH_SWIPE_MIN_PX && dur <= TOUCH_SWIPE_MAX_MS &&
-                swipe_cb) {
-                ESP_LOGI(TAG, "swipe dx %d dy %d in %d ms", far_dx, far_dy,
-                         (int)dur);
-                swipe_cb(far_dx, far_dy, (int)dur);
+            // The distance decides, not the time: a careful volume slide
+            // easily takes longer than half a second, and it must not turn
+            // into a mode switch halfway. A touch that moved is a swipe,
+            // never a tap and never a long press. The setup hold above only
+            // ever owns a finger that stayed put, which is why long_fired
+            // suppresses the swipe as well.
+            if (far_px >= TOUCH_SWIPE_MIN_PX) {
+                if (swipe_cb) {
+                    ESP_LOGI(TAG, "swipe dx %d dy %d in %d ms", far_dx, far_dy,
+                             (int)dur);
+                    swipe_cb(far_dx, far_dy, (int)dur);
+                }
             } else if (dur < TOUCH_TAP_MAX_MS && tap_cb) {
-                tap_cb();
+                // The landing point, not the release sample: the first report
+                // of a touch is the one the finger aimed at.
+                tap_cb(swipe_x, swipe_y);
             } else if (dur >= TOUCH_TAP_MAX_MS && long_cb) {
                 long_cb();
             }
