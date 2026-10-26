@@ -40,7 +40,7 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | `CMakeLists.txt` | Top-level ESP-IDF project |
 | `src/CMakeLists.txt` | Main component registration |
 | `src/main.c` | Entry point (`app_main`) |
-| `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`) |
+| `src/config/` | Runtime settings: `config.h` seeds the defaults, NVS overlays (`settings.c/.h`), compile-time switches (`features.h`), the reported build stamp (`version.h`) |
 | `src/core/` | Drivers: `display`, `sdcard`, `touch`, `audio`, `battery`, `net`, `power`, `status`, `pins.h` |
 | `src/ui/` | Frame buffer drawing helpers (`draw.c/.h`) and the generated fonts (`font.h`) |
 | `src/clock/` | Clock mode and time sync (`clock.c/.h`) |

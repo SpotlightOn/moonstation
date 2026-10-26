@@ -4,6 +4,7 @@
 var f = document.getElementById('f');
 var m = document.getElementById('m');
 var at = document.getElementById('alarm_time');
+var ver = document.getElementById('ver');
 
 function say(t) { m.textContent = t; }
 
@@ -15,6 +16,16 @@ function pad2(v) {
   v = parseInt(v, 10);
   if (isNaN(v)) return '00';
   return (v < 10 ? '0' : '') + v;
+}
+
+// Which firmware answers: the build stamp is not a setting, the firmware only
+// reports it. Both values come from src/config/version.h, e.g. version 0.4.1
+// built "Oct 26 2026 22:17".
+function loadVersion(d) {
+  var v = d.get('fw_version');
+  var b = d.get('fw_built');
+  if (v === null) return;
+  ver.textContent = 'Firmware ' + v + (b === null ? '' : ', built ' + b);
 }
 
 // The alarm time is one <input type=time> here and two settings
@@ -37,6 +48,7 @@ function load() {
     .then(function(r) { return r.text(); })
     .then(function(t) {
       var d = new URLSearchParams(t);
+      loadVersion(d);
       loadAlarmTime(d);
       Array.prototype.forEach.call(f.elements, function(i) {
         if (!i.id) return;

@@ -592,6 +592,13 @@ shows. Nothing else in the firmware knows it exists.
   the clamp ranges of `FIELDS` in `webserver.c`. `URLSearchParams` on the client
   side reads and writes that format, so quotes, spaces and umlauts in passwords
   survive without an escaping bug on either side.
+- **Build stamp**: `GET /api/config` also returns `fw_version` and `fw_built`,
+  the two macros from `src/config/version.h`, and the page shows them in its
+  footer. The date and time are the compiler's `__DATE__`/`__TIME__`, so they
+  are exactly the build of the binary answering; `FW_VERSION` is bumped by hand
+  together with the release tag. The same line is logged at boot
+  (`moonstation boot, firmware 0.4.1 built ...`), which is usually enough to
+  tell two builds apart from a serial capture.
 - **Secrets**: `wifi_password`, `web_password` and `weather_api_key` carry the
   `secret` flag in `FIELDS` and are write-only. `GET /api/config` reports
   `<key>.set=0|1` instead of the value and no build time default (that would

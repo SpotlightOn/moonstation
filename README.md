@@ -24,9 +24,11 @@ opens its own access point and serves that page there.
   short beep confirms that the box took the gesture, then it serves its own
   setup page with a login. It changes WiFi, slideshow, backlight, sleep window,
   NTP, timezone, alarm, audio, battery and the weather key and position at
-  runtime, and a "Reset to default" button restores the firmware defaults. A
-  red dot on the lower edge shows that it runs, the display shows its address,
-  and it shuts itself down when idle
+  runtime, and a "Reset to default" button restores the firmware defaults. Its
+  footer names the firmware version and the time that build was made, so a
+  screenshot is enough to say which build a box runs. A red dot on the lower
+  edge shows that it runs, the display shows its address, and it shuts itself
+  down when idle
 - **First setup without a cable**: a box without WiFi opens its own access
   point (`Moonstation-XXXX`, address `192.168.4.1`), so the page is reachable
   from a phone before the box has ever been on a network

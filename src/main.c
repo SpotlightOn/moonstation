@@ -12,6 +12,7 @@
 #include "power.h"
 #include "settings.h"
 #include "slideshow.h"
+#include "version.h"
 
 static const char *TAG = "moonstation";
 
@@ -31,7 +32,8 @@ void app_main(void)
     settings_init(); // after nvs_flash_init, before anything reads a value
     power_init();    // one place for the clock ceiling every module uses
 
-    ESP_LOGI(TAG, "moonstation boot");
+    ESP_LOGI(TAG, "moonstation boot, firmware %s built %s", FW_VERSION,
+             FW_BUILD_DATE);
     ESP_LOGI(TAG, "chip: %s, cores=%d, flash=%lu MB",
              CONFIG_IDF_TARGET, chip_info.cores, (unsigned long)(flash_size / (1024 * 1024)));
     ESP_LOGI(TAG, "slide interval: %lu ms", (unsigned long)settings.slide_interval_ms);
