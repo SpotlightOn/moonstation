@@ -5,6 +5,7 @@ idf_component_register(
          "core/battery.c" "core/status.c" "core/net.c" "core/screenshot.c"
          "core/power.c"
          "ui/draw.c"
+         "ui/osd.c"
          "clock/clock.c" "alarm/alarm.c" "slideshow/slideshow.c"
          "weather/weather.c" "weather/weather_icons.c"
          "web/webserver.c"

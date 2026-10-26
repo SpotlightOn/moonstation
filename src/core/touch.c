@@ -10,8 +10,8 @@
 #include "freertos/task.h"
 
 // Interrupt-driven touch: the CST816D INT line wakes a dedicated task that
-// reads the controller over I2C. Taps and long presses fire on release, so a
-// deliberate hold can be interrupted: a finger kept at one spot for
+// reads the controller over I2C. Taps, swipes and long presses fire on release,
+// so a deliberate hold can be interrupted: a finger kept at one spot for
 // TOUCH_SETUP_HOLD_MS is the setup gesture instead of a mode switch.
 #define TOUCH_DEBOUNCE_MS 20       // coalesce bursty INTs before reading
 #define TOUCH_TAP_MAX_MS 500       // hold length that counts as a long press
@@ -20,6 +20,8 @@
 #define TOUCH_SETUP_SETTLE_MS 400  // time a landing finger gets to calm down
 #define TOUCH_SETUP_MOVE_PX 40     // drift away from the settled position
 #define TOUCH_SETUP_SLIDE_PX 20    // motion within one poll, catches a swipe
+#define TOUCH_SWIPE_MIN_PX 50      // travel that counts as a swipe, not a tap
+#define TOUCH_SWIPE_MAX_MS 1000    // longer travel is a drag, not a swipe
 
 static const char *TAG = "touch";
 static i2c_master_bus_handle_t bus = NULL;
@@ -27,6 +29,7 @@ static i2c_master_dev_handle_t dev = NULL;
 static bool available = false;
 static touch_tap_cb_t tap_cb = NULL;
 static touch_long_cb_t long_cb = NULL;
+static touch_swipe_cb_t swipe_cb = NULL;
 static esp_timer_handle_t hold_timer = NULL;
 static TaskHandle_t touch_task_handle = NULL;
 
@@ -44,6 +47,13 @@ static int start_y = 0;
 static int prev_x = 0;          // previous report, catches a swipe
 static int prev_y = 0;
 static bool settled = false;    // the landing jitter is over
+// Where the finger landed and how far it ever got from there. Kept apart from
+// start_x/start_y, which the setup gesture re-bases once the landing settled.
+static int swipe_x = 0;
+static int swipe_y = 0;
+static int far_dx = 0;          // displacement of the farthest report
+static int far_dy = 0;
+static int far_px = 0;
 static volatile bool slow_poll = false;
 
 static esp_err_t read_regs(uint8_t reg, uint8_t *buf, size_t len)
@@ -120,8 +130,18 @@ static void handle_touch(void)
         prev_x = x;
         prev_y = y;
         settled = false;
+        swipe_x = x;
+        swipe_y = y;
+        far_dx = 0;
+        far_dy = 0;
+        far_px = 0;
         touch_start_ms = now;
         ESP_LOGI(TAG, "touch at %d,%d", x, y);
+        // Sample the finger while it is down even before the hold timer runs
+        // out: a phase in which the controller only reports the landing point
+        // would hide every fast swipe. The interrupt still wakes the task
+        // sooner, the poll is only the floor.
+        slow_poll = true;
         esp_timer_stop(hold_timer);
         esp_timer_start_once(hold_timer, TOUCH_TAP_MAX_MS * 1000);
         if (setup_armed) {
@@ -129,6 +149,17 @@ static void handle_touch(void)
             esp_timer_start_once(setup_timer, TOUCH_SETUP_HOLD_MS * 1000);
         }
     } else if (num > 0 && was_touched) {
+        // Track the farthest point of the whole touch: the controller reports
+        // about every TOUCH_HOLD_POLL_MS, so a quick flick leaves only one or
+        // two samples and the release position alone is not reliable.
+        int ddx = x - swipe_x;
+        int ddy = y - swipe_y;
+        int travel = abs(ddx) > abs(ddy) ? abs(ddx) : abs(ddy);
+        if (travel > far_px) {
+            far_px = travel;
+            far_dx = ddx;
+            far_dy = ddy;
+        }
         if (!settled && now - touch_start_ms >= TOUCH_SETUP_SETTLE_MS) {
             // Measure the rest of the hold against the position the finger
             // ended up at, not the one it landed on: the first reports of a
@@ -163,7 +194,15 @@ static void handle_touch(void)
             if (setup_armed && !setup_fired) fire_setup_gesture();
         }
         if (!long_fired) {
-            if (dur < TOUCH_TAP_MAX_MS && tap_cb) {
+            // A moved touch is a swipe, not a tap and not a mode switch. The
+            // setup hold above already owns a still finger, which is why
+            // long_fired suppresses the swipe as well.
+            if (far_px >= TOUCH_SWIPE_MIN_PX && dur <= TOUCH_SWIPE_MAX_MS &&
+                swipe_cb) {
+                ESP_LOGI(TAG, "swipe dx %d dy %d in %d ms", far_dx, far_dy,
+                         (int)dur);
+                swipe_cb(far_dx, far_dy, (int)dur);
+            } else if (dur < TOUCH_TAP_MAX_MS && tap_cb) {
                 tap_cb();
             } else if (dur >= TOUCH_TAP_MAX_MS && long_cb) {
                 long_cb();
@@ -173,6 +212,7 @@ static void handle_touch(void)
         setup_armed = false;
         setup_fired = false;
         settled = false;
+        far_px = 0;
     }
 }
 
@@ -287,6 +327,11 @@ void touch_set_long_press_cb(touch_long_cb_t cb)
 void touch_set_setup_cb(touch_setup_cb_t cb)
 {
     setup_cb = cb;
+}
+
+void touch_set_swipe_cb(touch_swipe_cb_t cb)
+{
+    swipe_cb = cb;
 }
 
 bool touch_is_available(void)

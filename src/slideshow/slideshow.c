@@ -31,9 +31,13 @@
 #include "features.h"
 #include "settings.h"
 #include "screenshot.h"
+#include "osd.h"
 
 #define MAX_SLIDE_BYTES (512 * 1024)
 #define MAX_SLIDES 256
+// One volume swipe is one step. Small enough to land on any level, large enough
+// that the whole range is a few swipes away.
+#define VOLUME_STEP_PCT 5
 
 static const char *TAG = "slideshow";
 // Shared RGB565 frame buffer, assigned in slideshow_run(). Both the slides
@@ -653,6 +657,47 @@ static void on_touch_tap(void)
     wake_main_task();
 }
 
+// Volume is the one gesture that works in every mode, so it lives in the mode
+// manager rather than in a mode. The touch task only counts steps; the main
+// loop applies them, draws the overlay and stores the new value once per
+// gesture.
+static volatile int volume_steps = 0;
+
+static void on_swipe(int dx, int dy, int duration_ms)
+{
+    (void)duration_ms;
+    last_interaction = esp_timer_get_time() / 1000000LL;
+    display_backlight_set_brightness(settings.backlight_full_pct);
+    last_brightness = settings.backlight_full_pct;
+    // While it rings the alarm enforces its own minimum volume, so a quieter
+    // setting would only make the bar lie about what is heard.
+    if (alarm_is_ringing()) return;
+    // Horizontal swipes are left to the modes (the radio will use them to
+    // change station); the volume takes the vertical ones.
+    if (abs(dx) > abs(dy) || dy == 0) return;
+    // finger up is louder
+    __atomic_fetch_add(&volume_steps, dy < 0 ? 1 : -1, __ATOMIC_SEQ_CST);
+    wake_main_task();
+}
+
+static void apply_volume_steps(void)
+{
+    int steps = __atomic_exchange_n(&volume_steps, 0, __ATOMIC_SEQ_CST);
+    if (steps == 0) return;
+
+    int volume = settings.audio_volume + steps * VOLUME_STEP_PCT;
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+    audio_set_volume(volume);
+    osd_show_volume(volume);
+    if (volume != settings.audio_volume) {
+        settings.audio_volume = (uint8_t)volume;
+        // Once per gesture, not per step: NVS is flash.
+        settings_save();
+    }
+    ESP_LOGI(TAG, "volume %d%%", volume);
+}
+
 static void on_long_press(void)
 {
     // Same rule as a tap: the ringing alarm owns the touch screen.
@@ -975,6 +1020,7 @@ void slideshow_run(void)
 #if WEATHER_ENABLE
     weather_init();
 #endif
+    osd_init();
     last_interaction = esp_timer_get_time() / 1000000LL;
 
     // The clock ceiling and the idle floor come from power_init(); this lock
@@ -1010,6 +1056,7 @@ void slideshow_run(void)
     touch_init(on_touch_tap);
     touch_set_long_press_cb(on_long_press);
     touch_set_setup_cb(on_setup_gesture);
+    touch_set_swipe_cb(on_swipe);
     active_mode->enter();
     screenshot_capture(mode_shot_name(active_mode));
 
@@ -1085,6 +1132,12 @@ void slideshow_run(void)
         }
         update_backlight();
 
+        // After the mode has drawn: the overlay has to be the last thing that
+        // reaches the panel in this pass, otherwise the mode's redraw would
+        // already have replaced it.
+        apply_volume_steps();
+        osd_on_wake(esp_timer_get_time());
+
         int64_t now_us = esp_timer_get_time();
         int64_t wake_us = alarm_next_wake_us(now_us);
         if (!ringing) {
@@ -1093,6 +1146,8 @@ void slideshow_run(void)
             int64_t mode_us = active_mode->next_wake_us(now_us);
             if (mode_us < wake_us) wake_us = mode_us;
         }
+        int64_t osd_us = osd_next_wake_us(now_us);
+        if (osd_us < wake_us) wake_us = osd_us;
         if (wake_us < 10000) wake_us = 10000;     // avoid a busy spin
         if (wake_us > 60000000) wake_us = 60000000; // cap the safety timeout
 
