@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+**New**
+
+- Movie mode (`MOVIE_ENABLE`, on by default): H.264 videos from `/movies` on the
+  SD card, decoded in software (`espressif/esp_h264`) and played with their MP3
+  sound track on the panel and the speaker. A tap pauses and continues, a
+  horizontal swipe picks the next or previous movie, a movie that ends starts
+  over, the volume keeps the global vertical swipe.
+- `scripts/build_movies.py` converts any video with ffmpeg into the 240x240
+  15 fps constrained-baseline H.264 and 48 kbit/s mono MP3 the player expects,
+  packed as one MPEG-TS file (`.ts`) without re-encoding the streams. `--fps`,
+  `--size` and `--no-audio` trade picture for smoothness.
+- `scripts/preview_movie.py` checks a movie against what the box can decode and
+  plays it with ffplay, or writes a Matroska copy.
+- Setup page: movie directory (`MOVIE_DIR`, default `/movies`).
+
 ## 0.5.0 - 2026-10-26
 
 **New**

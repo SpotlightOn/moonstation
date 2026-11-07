@@ -10,11 +10,12 @@ images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
 by a long press on the touch screen, an optional weather mode (OpenWeather,
 current conditions and a 24-hour forecast, tap to flip pages), an optional
 internet radio that plays MP3 streams from `.pls` files in `/radio` on the card
-(tap the drawn button to pause, swipe sideways to change station), PWM
-backlight dimming, and audio feedback. Touch and the built-in speaker must be
-functional. A box without WiFi credentials opens its own access point
-(Moonstation-XXXX, 192.168.4.1) and serves the setup page there, so the first
-setup needs no cable.
+(tap the drawn button to pause, swipe sideways to change station), an optional
+movie mode that plays H.264 movies as MPEG-TS (`.ts`) from `/movies` (tap to
+pause, swipe sideways to change movie), PWM backlight dimming, and audio
+feedback. Touch and the built-in speaker must be functional.
+A box without WiFi credentials opens its own access point (Moonstation-XXXX,
+192.168.4.1) and serves the setup page there, so the first setup needs no cable.
 
 ## Hard rules
 
@@ -46,8 +47,11 @@ setup needs no cable.
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
 | `src/weather/` | Weather mode: request, NVS cache, rendering, icons |
 | `src/radio/` | Radio mode (`radio.c/.h`), HTTP/decode tasks with the ring buffer (`stream.c/.h`), `.pls` parser (`pls.c/.h`) |
+| `src/movie/` | Movie mode (`movie.c/.h`), H.264/MP3 playback engine (`player.c/.h`) and the MPEG-TS demuxer (`ts.c/.h`) |
 | `src/alarm/` | Daily alarm: detection, beep pattern, ringing screen |
 | `src/web/` | Setup web server (`webserver.c/.h`) plus the page assets; `pages.h` and `certs.h` are generated and git-ignored |
+| `scripts/build_movies.py` | Converts any video into a 240x240 H.264/MP3 `.ts` movie, needs ffmpeg |
+| `scripts/preview_movie.py` | Checks a `.ts` against what the box can decode, plays it or writes a Matroska copy, needs ffmpeg and ffplay |
 | `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
 | `scripts/generate_web.py` | Regenerates `src/web/pages.h`, called before every build |

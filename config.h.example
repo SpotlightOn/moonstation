@@ -28,6 +28,11 @@
 // file). The setup page can change it at runtime.
 #define RADIO_DIR "/radio"
 
+// Directory on the SD card holding the movies (.ts, one movie per file,
+// written by scripts/build_movies.py). The setup page can change it at
+// runtime.
+#define MOVIE_DIR "/movies"
+
 // Crossfade between two images in milliseconds, 0 cuts hard. Needs a second
 // frame buffer, which lives in PSRAM (the board has 8 MB); a build without
 // PSRAM ignores the value. A transition costs about half a second of SPI

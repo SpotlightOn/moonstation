@@ -1,11 +1,18 @@
 #ifndef SLIDESHOW_H
 #define SLIDESHOW_H
 
+#include <stdbool.h>
+
 void slideshow_run(void);
 
 // Asks the mode manager for an immediate redraw: the next loop pass renders
 // even if the minute has not changed. Safe to call from any task.
 void ui_force_redraw(void);
+
+// Consumes a pending ui_force_redraw() request. The mode manager calls the
+// mode's on_wake on the same pass, so a mode that handles the request itself
+// (the movie player) clears it here.
+bool ui_take_force_redraw(void);
 
 // Changes the volume by the given number of 5 % steps on behalf of a mode that
 // draws its own volume buttons (the radio). The main loop applies it on the

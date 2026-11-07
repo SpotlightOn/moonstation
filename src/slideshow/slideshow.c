@@ -10,6 +10,7 @@
 #include "clock.h"
 #include "weather.h"
 #include "radio.h"
+#include "movie.h"
 #include "esp_heap_caps.h"
 #include "esp_pm.h"
 #include "esp_timer.h"
@@ -93,6 +94,14 @@ static bool take_force_redraw(void)
     if (!force_redraw) return false;
     force_redraw = false;
     return true;
+}
+
+// A module outside of slideshow.c (the movie player) asks for a redraw pass
+// the same way the status row does, and needs to clear the request as a mode
+// would.
+bool ui_take_force_redraw(void)
+{
+    return take_force_redraw();
 }
 
 void ui_force_redraw(void)
@@ -626,6 +635,9 @@ static const ui_mode_t weather_mode;
 #if RADIO_ENABLE
 static const ui_mode_t radio_mode;
 #endif
+#if MOVIE_ENABLE
+static const ui_mode_t movie_mode;
+#endif
 
 static const ui_mode_t *active_mode = NULL;
 static const ui_mode_t *pending_mode = NULL;
@@ -988,10 +1000,37 @@ static int64_t radio_mode_next_wake_us(int64_t now_us)
 }
 #endif // RADIO_ENABLE
 
+// Mode: movie (cycle position 6, only with MOVIE_ENABLE)
+//
+// The player module owns the list, the decode tasks and the picture; the mode
+// only forwards the gestures and restarts the file when it ends. A tap pauses
+// and continues, a horizontal swipe picks another file, the long press leaves
+// the mode, the volume keeps the global vertical swipe.
+
+#if MOVIE_ENABLE
+static void movie_mode_enter(void)
+{
+    apply_power_for_mode(true);
+    combined_overlay = false;
+    movie_enter();
+}
+
+static void movie_mode_on_wake(void)
+{
+    if (ui_take_force_redraw()) movie_redraw();
+    movie_on_wake();
+}
+
+static int64_t movie_mode_next_wake_us(int64_t now_us)
+{
+    return movie_next_wake_us(now_us);
+}
+#endif // MOVIE_ENABLE
+
 //
 // Mode instances. Long-press cycle: clock -> slideshow -> combined -> weather
-// -> clock; the weather step is compiled in only with WEATHER_ENABLE. The
-// device boots into clock mode.
+// -> radio -> movie -> clock; each step is compiled in only with its switch.
+// The device boots into clock mode.
 //
 
 static const ui_mode_t clock_mode = {
@@ -1057,7 +1096,11 @@ static const ui_mode_t weather_mode = {
 #if RADIO_ENABLE
 static const ui_mode_t radio_mode = {
     .name = "radio",
+#if MOVIE_ENABLE
+    .next = &movie_mode,
+#else
     .next = &clock_mode,
+#endif
     .enter_tone_hz = 660,
     .enter = radio_mode_enter,
     .exit = radio_exit,
@@ -1068,6 +1111,21 @@ static const ui_mode_t radio_mode = {
     .next_wake_us = radio_mode_next_wake_us,
 };
 #endif // RADIO_ENABLE
+
+#if MOVIE_ENABLE
+static const ui_mode_t movie_mode = {
+    .name = "movie",
+    .next = &clock_mode,
+    .enter_tone_hz = 784,
+    .enter = movie_mode_enter,
+    .exit = movie_exit,
+    .on_tap = movie_on_tap,
+    .on_swipe = movie_on_swipe,
+    .on_long_press = mode_on_long_press,
+    .on_wake = movie_mode_on_wake,
+    .next_wake_us = movie_mode_next_wake_us,
+};
+#endif // MOVIE_ENABLE
 
 // Short file name for the debug frame dump of a mode: the display names are
 // friendly but "clock+slideshow" does not fit into the 8.3 name of the card.
@@ -1081,6 +1139,9 @@ static const char *mode_shot_name(const ui_mode_t *mode)
 #endif
 #if RADIO_ENABLE
     if (mode == &radio_mode) return "radio";
+#endif
+#if MOVIE_ENABLE
+    if (mode == &movie_mode) return "movie";
 #endif
     return "mode";
 }
@@ -1248,6 +1309,10 @@ void slideshow_run(void)
         }
         int64_t osd_us = osd_next_wake_us(now_us);
         if (osd_us < wake_us) wake_us = osd_us;
+        // A mode without a timer of its own (the movie player) must still be
+        // woken when the backlight schedule takes its next step.
+        int64_t dim_us = next_backlight_step_us(now_us);
+        if (dim_us < wake_us) wake_us = dim_us;
         if (wake_us < 10000) wake_us = 10000;     // avoid a busy spin
         if (wake_us > 60000000) wake_us = 60000000; // cap the safety timeout
 

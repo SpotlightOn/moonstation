@@ -148,6 +148,7 @@ static const field_t FIELDS[] = {
     SECRET_FIELD(wifi_password, 65),
     FIELD(slide_dir, F_STR, 32, 0, 0),
     FIELD(radio_dir, F_STR, 32, 0, 0),
+    FIELD(movie_dir, F_STR, 32, 0, 0),
     FIELD(slide_interval_ms, F_U32, 0, 1000, 3600000),
     FIELD(slide_fade_ms, F_U16, 0, 0, 2000),
     FIELD(backlight_full_pct, F_U8, 0, 10, 100),

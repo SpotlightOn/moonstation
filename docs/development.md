@@ -1,7 +1,8 @@
 # Development
 
 Developer notes for the moonstation firmware. `README.md` has the user-facing
-overview, `docs/radio.md` the radio plan and its open points.
+overview, `docs/radio.md` the radio plan, `docs/movie.md` the movie plan and its
+open points.
 
 ## Layout
 
@@ -24,12 +25,14 @@ moonstation/
 │   ├── slideshow/           slideshow.c/.h (mode manager)
 │   ├── weather/             weather.c/.h, weather_icons.c/.h
 │   ├── radio/               radio.c/.h, stream.c/.h, pls.c/.h
+│   ├── movie/               movie.c/.h (mode), player.c/.h (playback)
 │   └── web/                 webserver.c/.h, page.html/.css/.js,
 │                            setup.html/.js, pages.h + certs.h (generated)
-├── scripts/                 build_slides.sh, generate_font.py,
+├── scripts/                 build_slides.sh, build_movies.py,
+│                            preview_movie.py, generate_font.py,
 │                            generate_cert.sh, generate_web.py,
 │                            pio_generate_web.py, fonts/
-└── docs/                    development.md, radio.md
+└── docs/                    development.md, radio.md, movie.md
 ```
 
 ## Prerequisites

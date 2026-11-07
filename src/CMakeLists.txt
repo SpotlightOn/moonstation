@@ -9,9 +9,10 @@ idf_component_register(
          "clock/clock.c" "alarm/alarm.c" "slideshow/slideshow.c"
          "weather/weather.c" "weather/weather_icons.c"
          "radio/pls.c" "radio/stream.c" "radio/radio.c"
+         "movie/player.c" "movie/ts.c" "movie/movie.c"
          "web/webserver.c"
     INCLUDE_DIRS "." "config" "core" "ui" "clock" "alarm" "slideshow" "weather"
-                 "radio" "web"
+                 "radio" "movie" "web"
     REQUIRES esp_lcd fatfs esp_timer driver esp_adc esp_wifi esp_event esp_netif
              nvs_flash esp_https_server esp_http_client mbedtls
 )

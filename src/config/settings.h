@@ -94,6 +94,9 @@ typedef struct {
     // Radio mode: folder with the .pls playlists, relative to the card root.
     // Appended last for the same migration reason as the fields above.
     char radio_dir[32];
+
+    // Movie mode: folder with the movies, relative to the card root.
+    char movie_dir[32];
 } settings_t;
 
 extern settings_t settings;
