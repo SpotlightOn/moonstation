@@ -20,7 +20,7 @@ function pad2(v) {
 }
 
 // Which firmware answers: the build stamp is not a setting, the firmware only
-// reports it. Both values come from src/config/version.h, e.g. version 0.5.0
+// reports it. Both values come from src/config/version.h, e.g. version 0.6.0
 // built "Oct 26 2026 22:17".
 function loadVersion(d) {
   var v = d.get('fw_version');

@@ -19,7 +19,7 @@ Verified on the box:
 - a two second hold on the BOOT button (GPIO 0) switches in both directions:
   from moonstation into `ota_0` (`bootswitch: next boot: xiaozhi 2.5.3` in the
   log), and from xiaozhi back to `factory`, where the bootloader loads
-  moonstation 0.5.0 with its settings, SD card, touch and audio intact.
+  moonstation 0.6.0 with its settings, SD card, touch and audio intact.
 - the setup-page button and the USB route (`erase_region 0xe000 0x2000`) reach
   the same state.
 
