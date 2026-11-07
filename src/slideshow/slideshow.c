@@ -246,7 +246,7 @@ static void fill_color(uint16_t color)
     } else {
         ui_status_draw(slide_fb);
     }
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, slide_fb);
+    display_draw_bitmap(0, 0, 240, 240, slide_fb);
 }
 
 // CPU at full speed: taken around the work that needs it (SD access, decode,
@@ -389,8 +389,7 @@ static void fade_step(const uint16_t *old_img, const uint16_t *new_img,
         for (int i = 0; i < lines * width; i++) {
             fade_band[i] = blend565(a[i], b[i], alpha);
         }
-        esp_lcd_panel_draw_bitmap(display_get_panel(), 0, y, width, y + lines,
-                                  fade_band);
+        display_draw_bitmap(0, y, width, y + lines, fade_band);
     }
 }
 
@@ -506,11 +505,10 @@ static esp_err_t show_slide_now(const char *path)
         memcpy(slide_fb, dst, img_bytes);
         if (info.width != shown_w || info.height != shown_h) {
             // Sizes differ, the blend only covered the common area.
-            esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width,
-                                      info.height, slide_fb);
+            display_draw_bitmap(0, 0, info.width, info.height, slide_fb);
         }
     } else {
-        esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, info.width, info.height, slide_fb);
+        display_draw_bitmap(0, 0, info.width, info.height, slide_fb);
     }
     shown_w = info.width;
     shown_h = info.height;

@@ -68,7 +68,7 @@ static bool drawn_paused = false;
 static void push(uint16_t *fb)
 {
     ui_status_draw(fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, SCREEN_W, SCREEN_H, fb);
+    display_draw_bitmap(0, 0, SCREEN_W, SCREEN_H, fb);
 }
 
 static const char *state_text(void)

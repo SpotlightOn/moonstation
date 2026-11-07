@@ -17,6 +17,16 @@
   plays it with ffplay, or writes a Matroska copy.
 - Setup page: movie directory (`MOVIE_DIR`, default `/movies`).
 
+**Fixed**
+
+- The box froze while a movie played and the volume bar showed up: the overlay
+  and the picture task pushed to the panel at the same time, and two tasks in
+  the LCD's SPI driver can leave a transfer that never completes. Every push now
+  goes through a lock in `display.c`, so only one task draws at a time. The
+  overlay is also pushed row by row out of the frame buffer instead of from a
+  PSRAM copy, which the panel's DMA does not handle, and the movie player draws
+  it into its own frames so the bar stays up for its full duration.
+
 ## 0.5.0 - 2026-10-26
 
 **New**

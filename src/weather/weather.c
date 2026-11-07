@@ -479,7 +479,7 @@ static const char *compass(uint16_t deg)
 static void push(uint16_t *fb)
 {
     ui_status_draw(fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, SCREEN_W, SCREEN_H, fb);
+    display_draw_bitmap(0, 0, SCREEN_W, SCREEN_H, fb);
 }
 
 static void render_message(const char *title, const char *hint, uint16_t *fb)

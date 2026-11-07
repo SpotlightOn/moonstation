@@ -8,6 +8,16 @@
 esp_err_t display_init(void);
 esp_lcd_panel_handle_t display_get_panel(void);
 
+// The panel has one drawer at a time. Its SPI driver is not written for two
+// tasks pushing at once - the movie mode's picture task and the mode manager's
+// overlay share it - and a mixed polling/queued sequence from two tasks can
+// leave a transfer that never completes. Every push goes through
+// display_draw_bitmap(); display_lock()/display_unlock() wrap a group of pushes
+// that must not be interrupted by another task's frame.
+void display_lock(void);
+void display_unlock(void);
+void display_draw_bitmap(int x0, int y0, int x1, int y1, const uint16_t *px);
+
 // Byte swap for RGB565 pixel values written into a frame buffer. The panel
 // expects the most significant byte first on the bus; esp_lcd only reverses
 // command and parameter bytes, not color data, and the CPU stores a

@@ -354,5 +354,5 @@ void clock_render(const uint16_t *background)
     }
 
     clock_compose(fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, fb);
+    display_draw_bitmap(0, 0, 240, 240, fb);
 }

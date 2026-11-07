@@ -9,13 +9,39 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_gc9a01.h"
 #include "settings.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "display";
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static esp_lcd_panel_handle_t panel_handle = NULL;
+static SemaphoreHandle_t draw_lock = NULL;
+
+void display_lock(void)
+{
+    if (draw_lock) xSemaphoreTakeRecursive(draw_lock, portMAX_DELAY);
+}
+
+void display_unlock(void)
+{
+    if (draw_lock) xSemaphoreGiveRecursive(draw_lock);
+}
+
+void display_draw_bitmap(int x0, int y0, int x1, int y1, const uint16_t *px)
+{
+    if (!panel_handle) return;
+    display_lock();
+    esp_lcd_panel_draw_bitmap(panel_handle, x0, y0, x1, y1, (uint16_t *)px);
+    display_unlock();
+}
 
 esp_err_t display_init(void)
 {
+    if (!draw_lock) {
+        draw_lock = xSemaphoreCreateRecursiveMutex();
+        if (!draw_lock) return ESP_ERR_NO_MEM;
+    }
+
     // Coming out of deep sleep the pads are still latched by the holds taken
     // in display_deep_sleep_prepare(); release them before reconfiguring.
     gpio_deep_sleep_hold_dis();
@@ -161,7 +187,9 @@ void display_deep_sleep_prepare(void)
     // meaningful image without the backlight anyway. display_init() performs
     // a hardware reset plus the full init sequence after the next wake-up,
     // which brings the panel back from sleep mode.
+    display_lock();
     esp_lcd_panel_io_tx_param(io_handle, 0x10, NULL, 0); // GC9A01 sleep in
+    display_unlock();
 
     // Latch every pad the panel listens on. Deep sleep turns the digital
     // pads into high-Z inputs; without the holds the floating SPI lines

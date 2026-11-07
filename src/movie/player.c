@@ -19,6 +19,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "mp3dec.h"
+#include "osd.h"
 #include "power.h"
 #include "slideshow.h" // ui_force_redraw()
 #include "settings.h"
@@ -294,8 +295,11 @@ static void video_task(void *arg)
         }
 
         yuv_to_frame(out.outbuf, out.out_size, dec_w, dec_h);
-        esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, SCREEN_W, SCREEN_H,
-                                  display_get_framebuffer());
+        // A volume bar that is up belongs on this frame too; the mode manager
+        // only pushes it on its own when no picture is running.
+        osd_paint(display_get_framebuffer());
+        display_draw_bitmap(0, 0, SCREEN_W, SCREEN_H,
+                            display_get_framebuffer());
         pushed++;
 
         next_us += interval_us;

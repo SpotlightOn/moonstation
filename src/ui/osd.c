@@ -27,30 +27,20 @@ static const char *TAG = "osd";
 #define OSD_FILL 0xFD20   // amber, the same accent the weather page uses
 
 static uint16_t *saved = NULL;  // the pixels the overlay covers
-static uint16_t *rect = NULL;   // the pixels the overlay pushed
 static bool visible = false;
 static bool warned = false;
 static int64_t hide_at_us = 0;
 static uint32_t shown_sum = 0;  // checksum of the overlay as it was drawn
+static int shown_percent = 0;   // the value osd_paint() has to repeat
 
 static bool has_buffers(void)
 {
-    if (saved && rect) return true;
-    // Two rectangles of 19 kB; PSRAM is the only place with room to spare.
+    if (saved) return true;
+    // One rectangle of 19 kB; it is only ever copied to and from the frame
+    // buffer, so PSRAM is fine and the internal heap stays free for decoding.
     const size_t bytes = OSD_WIDTH * OSD_HEIGHT * sizeof(uint16_t);
+    saved = heap_caps_aligned_alloc(64, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!saved) {
-        saved = heap_caps_aligned_alloc(64, bytes,
-                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-    if (!rect) {
-        rect = heap_caps_aligned_alloc(64, bytes,
-                                       MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    }
-    if (!saved || !rect) {
-        if (saved) heap_caps_free(saved);
-        if (rect) heap_caps_free(rect);
-        saved = NULL;
-        rect = NULL;
         if (!warned) {
             ESP_LOGW(TAG, "no PSRAM for the overlay");
             warned = true;
@@ -115,6 +105,24 @@ static void draw_overlay(int percent, uint16_t *fb)
     if (fill > 0) fill_rect(bar_x, bar_y, fill, bar_h, OSD_FILL, fb);
 }
 
+// Rows of the rectangle, taken straight out of the frame buffer. One transfer
+// would need its own 19 kB buffer, and pushing from a PSRAM copy hangs: the SPI
+// DMA needs SPI_TRANS_DMA_USE_PSRAM for that, which this panel IO is not set up
+// for. Rows out of the frame buffer are internal RAM and need no flag.
+static void push_rows(const uint16_t *fb)
+{
+    esp_lcd_panel_handle_t panel = display_get_panel();
+    // One critical section for the whole rectangle: a picture pushed between
+    // two rows would cover the rows that are already on the panel.
+    display_lock();
+    for (int y = 0; y < OSD_HEIGHT; y++) {
+        const int py = OSD_Y + y;
+        esp_lcd_panel_draw_bitmap(panel, OSD_X, py, OSD_X + OSD_WIDTH, py + 1,
+                                  (uint16_t *)(fb + (size_t)py * SCREEN_W + OSD_X));
+    }
+    display_unlock();
+}
+
 void osd_init(void)
 {
     visible = false;
@@ -135,15 +143,22 @@ void osd_show_volume(int percent)
     // the first show still holds the mode's pixels, not the old bar.
     if (!visible || region_sum(fb) != shown_sum) grab(saved, fb);
 
+    shown_percent = percent;
     draw_overlay(percent, fb);
-
-    grab(rect, fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), OSD_X, OSD_Y,
-                              OSD_X + OSD_WIDTH, OSD_Y + OSD_HEIGHT, rect);
+    push_rows(fb);
 
     shown_sum = region_sum(fb);
     visible = true;
     hide_at_us = esp_timer_get_time() + OSD_DURATION_US;
+}
+
+void osd_paint(uint16_t *fb)
+{
+    if (!visible || !fb) return;
+    // The mode pushes this frame itself, and its next frame takes the overlay
+    // with it. shown_sum stays as it is, so osd_on_wake() sees the difference
+    // and leaves the restore to the mode.
+    draw_overlay(shown_percent, fb);
 }
 
 void osd_on_wake(int64_t now_us)
@@ -159,8 +174,7 @@ void osd_on_wake(int64_t now_us)
     if (region_sum(fb) != shown_sum) return;
 
     put(fb, saved);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), OSD_X, OSD_Y,
-                              OSD_X + OSD_WIDTH, OSD_Y + OSD_HEIGHT, saved);
+    push_rows(fb);
 }
 
 int64_t osd_next_wake_us(int64_t now_us)

@@ -12,12 +12,20 @@
 //
 // Everything runs in the main task (the mode manager). The touch task only
 // leaves its wish behind and wakes the loop, the same rule the modes follow.
+// The one exception is osd_paint(), which a mode whose pictures come from its
+// own task calls right before it pushes a frame.
 
 void osd_init(void);
 
 // Shows the volume bar for one and a half seconds, replacing a bar that is
 // still up.
 void osd_show_volume(int percent);
+
+// Draws the overlay into a frame a mode is about to push, so a picture that is
+// redrawn again and again (the movie player) carries the bar for its whole
+// duration instead of erasing it with the next frame. Does nothing while no
+// overlay is up.
+void osd_paint(uint16_t *fb);
 
 // Restores the covered area once its time is up. Call from the main loop.
 void osd_on_wake(int64_t now_us);
