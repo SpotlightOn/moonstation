@@ -299,8 +299,11 @@ so no ADC calibration config is needed.
 A repeating `esp_timer` samples every `BATTERY_REFRESH_SEC` seconds and writes one
 log line per refresh with the raw ADC value, so a wrong percentage can be traced
 back to the sensor. The display only reads that cache and never starts a
-conversion itself. At `BATTERY_WARN_PCT` or less a short quiet beep sounds
-(`BATTERY_BEEP_VOLUME`). The monitor is initialized from `clock_init()`.
+conversion itself. At `BATTERY_WARN_PCT` or less two short quiet beeps sound
+(`BATTERY_BEEP_VOLUME`); the pair cannot be confused with the single tone a
+gesture answers with. The monitor is initialized from `clock_init()`. Nothing of
+it runs during clock deep sleep: the warning then comes right after the next
+wake-up, because the boot samples and refreshes the cache before the clock draws.
 
 ## UI modes
 

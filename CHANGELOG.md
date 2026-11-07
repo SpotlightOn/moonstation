@@ -17,6 +17,10 @@
   plays it with ffplay, or writes a Matroska copy.
 - Setup page: movie directory (`MOVIE_DIR`, default `/movies`).
 
+**Changed**
+
+- The low battery warning is two short beeps instead of one.
+
 **Fixed**
 
 - Tones were cut off when the codec closed; they now play out first.
