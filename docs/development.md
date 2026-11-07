@@ -275,6 +275,19 @@ the decoder waits on the lock and continues afterwards. The tone is generated in
 blocks of 512 samples on the heap: the touch task has a 3 kB stack and must not
 build a long tone in one piece.
 
+Closing the codec disables I2S, and that drops whatever the DMA still holds - one
+queue, six buffers of 240 frames, which is 60 ms at 24 kHz. A tone therefore waits
+for the queue to play out before the codec closes; without that wait its tail is
+cut off.
+
+Opening the codec resets the ES8311 and restarts its DAC and PLL, so the first
+samples after an open are lost. Every tone waits `CODEC_SETTLE_MS` (100 ms)
+before it writes audio. Without that wait a short beep vanished completely - the
+two-beep warning sounded as a single beep, and a longer tone only lost its
+attack. `audio_play_tone_pair()` plays two beeps with a gap through one open,
+which is what the low battery warning uses: 70 ms at 1500 Hz, 300 ms pause,
+70 ms at 1500 Hz.
+
 ## Battery
 
 `core/battery.c` reads the charge level from the voltage divider on GPIO 1 (ADC1

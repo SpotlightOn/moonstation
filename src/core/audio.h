@@ -13,6 +13,11 @@ void audio_play_tone(int freq_hz, int duration_ms);
 // tones that should stay in the background, like the low battery beep.
 void audio_play_tone_at(int freq_hz, int duration_ms, int volume_pct);
 
+// Two short tones of the same pitch with a gap in between, so the pattern
+// cannot be mistaken for the single tone a gesture answers with. Opens and
+// closes the codec once for the whole pair.
+void audio_play_tone_pair(int freq_hz, int on_ms, int gap_ms, int volume_pct);
+
 // Sets the output volume in percent (0-100). Unlike the tone functions this
 // does not open or close the codec: it takes effect immediately, including on
 // a stream that is already open.

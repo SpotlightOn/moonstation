@@ -15,6 +15,12 @@
 #include "math.h"
 #include <stdlib.h>
 
+// The ES8311 is reset and restarted by es8311_start on every codec open, and
+// its DAC and PLL need a moment before they pass the first sample. A beep
+// shorter than that gap disappears completely. Waited out after each fresh
+// open, before the first sample is written.
+#define CODEC_SETTLE_MS 100
+
 static const char *TAG = "audio";
 static esp_codec_dev_handle_t codec_dev = NULL;
 static i2s_chan_handle_t tx_handle = NULL;
@@ -247,9 +253,56 @@ void audio_stream_end(void)
     audio_lock_give();
 }
 
-void audio_play_tone_at(int freq_hz, int duration_ms, int volume_pct)
+// Writes one stretch into the open codec: a sine at freq_hz, or silence when
+// freq_hz is 0, which is the gap between two beeps. The caller holds the lock
+// and the codec is already open.
+static void write_stretch(int freq_hz, int rate, int duration_ms)
 {
-    if (!codec_dev || duration_ms <= 0) return;
+    if (duration_ms <= 0) return;
+    const int total = rate * duration_ms / 1000;
+    const int chunk = total < TONE_CHUNK ? total : TONE_CHUNK;
+    int16_t *buf = malloc((size_t)chunk * 2 * sizeof(int16_t));
+    if (!buf) return;
+    for (int done = 0; done < total; done += chunk) {
+        const int n = total - done < chunk ? total - done : chunk;
+        for (int i = 0; i < n; i++) {
+            int16_t v = 0;
+            if (freq_hz > 0) {
+                float t = (float)(done + i) / (float)rate;
+                v = (int16_t)(sinf(2.0f * 3.14159265f * freq_hz * t) * 16000.0f);
+            }
+            buf[i * 2] = v;
+            buf[i * 2 + 1] = v;
+        }
+        esp_codec_dev_write(codec_dev, buf, n * 2 * (int)sizeof(int16_t));
+    }
+    free(buf);
+}
+
+// Closing the codec switches the PA off, but it also disables I2S, which drops
+// whatever the DMA still holds. After the last write that is the whole queue,
+// six buffers of 240 frames - 60 ms at 24 kHz - so the tail of a beep would be
+// cut off. Play it out before closing.
+static void close_after_playback(int rate)
+{
+    i2s_chan_info_t info;
+    if (tx_handle && i2s_channel_get_info(tx_handle, &info) == ESP_OK &&
+        info.total_dma_buf_size > 0) {
+        const uint32_t bytes_per_sec =
+            (uint32_t)rate * (uint32_t)fs.channel * (uint32_t)sizeof(int16_t);
+        const uint32_t queued_ms =
+            info.total_dma_buf_size * 1000u / bytes_per_sec;
+        vTaskDelay(pdMS_TO_TICKS(queued_ms + 10));
+    }
+    esp_codec_dev_close(codec_dev);
+}
+
+// Plays a pattern of stretches. Every entry runs through the same lock, so a
+// pair of beeps cannot be split by another tone or a decoder buffer.
+static void play_pattern(const int *freq_hz, const int *duration_ms, int steps,
+                         int volume_pct)
+{
+    if (!codec_dev) return;
     if (!audio_lock_take()) {
         ESP_LOGW(TAG, "codec busy, tone skipped");
         return;
@@ -267,35 +320,34 @@ void audio_play_tone_at(int freq_hz, int duration_ms, int volume_pct)
             ESP_LOGW(TAG, "codec open failed");
             return;
         }
+        vTaskDelay(pdMS_TO_TICKS(CODEC_SETTLE_MS));
     }
     set_volume_locked(volume_pct);
 
-    const int total = rate * duration_ms / 1000;
-    const int chunk = total < TONE_CHUNK ? total : TONE_CHUNK;
-    int16_t *buf = malloc((size_t)chunk * 2 * sizeof(int16_t));
-    if (!buf) {
-        if (!streaming) esp_codec_dev_close(codec_dev);
-        audio_lock_give();
-        return;
+    for (int i = 0; i < steps; i++) {
+        write_stretch(freq_hz[i], rate, duration_ms[i]);
     }
-    for (int done = 0; done < total; done += chunk) {
-        const int n = total - done < chunk ? total - done : chunk;
-        for (int i = 0; i < n; i++) {
-            float t = (float)(done + i) / (float)rate;
-            int16_t v =
-                (int16_t)(sinf(2.0f * 3.14159265f * freq_hz * t) * 16000.0f);
-            buf[i * 2] = v;
-            buf[i * 2 + 1] = v;
-        }
-        esp_codec_dev_write(codec_dev, buf, n * 2 * (int)sizeof(int16_t));
-    }
-    free(buf);
 
     if (streaming) {
         set_volume_locked(settings.audio_volume);  // back to the stream level
     } else {
         // Close to disable PA and keep the speaker silent when idle.
-        esp_codec_dev_close(codec_dev);
+        close_after_playback(rate);
     }
     audio_lock_give();
+}
+
+void audio_play_tone_at(int freq_hz, int duration_ms, int volume_pct)
+{
+    if (duration_ms <= 0) return;
+    play_pattern(&freq_hz, &duration_ms, 1, volume_pct);
+}
+
+void audio_play_tone_pair(int freq_hz, int on_ms, int gap_ms, int volume_pct)
+{
+    if (on_ms <= 0) return;
+    if (gap_ms < 0) gap_ms = 0;
+    const int hz[3] = {freq_hz, 0, freq_hz};
+    const int ms[3] = {on_ms, gap_ms, on_ms};
+    play_pattern(hz, ms, 3, volume_pct);
 }
