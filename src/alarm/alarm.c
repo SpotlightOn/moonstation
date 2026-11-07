@@ -80,7 +80,7 @@ static void render(void)
     bool on = ((esp_timer_get_time() - ring_started_us) / 500000LL) & 1;
     if (on) draw_text_center("ALARM", 20, 0, COLOR_ALARM, fb);
     draw_text_center("tap to stop", 196, 0, COLOR_HINT, fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, 240, 240, fb);
+    display_draw_bitmap(0, 0, 240, 240, fb);
 }
 
 static void start_ringing(void)

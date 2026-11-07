@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.6.0 - 2026-11-07
+
+**New**
+
+- Dual boot with xiaozhi-esp32: a two second hold on the BOOT button switches
+  between the two firmwares, and the setup page can hand the next boot over.
+  See `docs/dual-boot.md`.
+- Movie mode (`MOVIE_ENABLE`, on by default): H.264 videos from `/movies` on the
+  SD card, decoded in software (`espressif/esp_h264`) and played with their MP3
+  sound track on the panel and the speaker. A tap pauses and continues, a
+  horizontal swipe picks the next or previous movie, a movie that ends starts
+  over, the volume keeps the global vertical swipe.
+- `scripts/build_movies.py` converts any video with ffmpeg into the 240x240
+  15 fps constrained-baseline H.264 and 48 kbit/s mono MP3 the player expects,
+  packed as one MPEG-TS file (`.ts`) without re-encoding the streams. `--fps`,
+  `--size` and `--no-audio` trade picture for smoothness.
+- `scripts/preview_movie.py` checks a movie against what the box can decode and
+  plays it with ffplay, or writes a Matroska copy.
+- Setup page: movie directory (`MOVIE_DIR`, default `/movies`).
+
+**Changed**
+
+- The low battery warning is two short beeps instead of one.
+
+**Fixed**
+
+- Tones were cut off when the codec closed; they now play out first.
+- The first tone after a codec open was lost; tones now wait for the codec.
+- Entering the radio or the movie mode starts nothing until a tap: the radio
+  shows the station, the movie mode the file name.
+- The box froze while a movie played and the volume bar showed up: the overlay
+  and the picture task pushed to the panel at the same time, and two tasks in
+  the LCD's SPI driver can leave a transfer that never completes. Every push now
+  goes through a lock in `display.c`, so only one task draws at a time. The
+  overlay is also pushed row by row out of the frame buffer instead of from a
+  PSRAM copy, which the panel's DMA does not handle, and the movie player draws
+  it into its own frames so the bar stays up for its full duration.
+
 ## 0.5.0 - 2026-10-26
 
 **New**

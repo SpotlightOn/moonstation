@@ -10,11 +10,12 @@ images stored in `/slides` on the SD card, a clock mode (HH:MM and date) toggled
 by a long press on the touch screen, an optional weather mode (OpenWeather,
 current conditions and a 24-hour forecast, tap to flip pages), an optional
 internet radio that plays MP3 streams from `.pls` files in `/radio` on the card
-(tap the drawn button to pause, swipe sideways to change station), PWM
-backlight dimming, and audio feedback. Touch and the built-in speaker must be
-functional. A box without WiFi credentials opens its own access point
-(Moonstation-XXXX, 192.168.4.1) and serves the setup page there, so the first
-setup needs no cable.
+(tap the drawn button to pause, swipe sideways to change station), an optional
+movie mode that plays H.264 movies as MPEG-TS (`.ts`) from `/movies` (tap to
+pause, swipe sideways to change movie), PWM backlight dimming, and audio
+feedback. Touch and the built-in speaker must be functional.
+A box without WiFi credentials opens its own access point (Moonstation-XXXX,
+192.168.4.1) and serves the setup page there, so the first setup needs no cable.
 
 ## Hard rules
 
@@ -36,7 +37,7 @@ setup needs no cable.
 | Path | Purpose |
 | --- | --- |
 | `platformio.ini` | Single env `spotpear_esp32s3`, espidf framework |
-| `partitions_16mb.csv` | 16 MB flash, 4 MB factory app |
+| `partitions_16mb.csv` | 16 MB flash: `factory` (moonstation, 3 MB), `ota_0`/`ota_1` (xiaozhi, 3.5 MB each), `assets` (4 MB) |
 | `CMakeLists.txt`, `src/CMakeLists.txt` | Top-level project and main component |
 | `src/main.c` | Entry point (`app_main`) |
 | `src/config/` | Defaults from `config.h`, NVS overlay (`settings.c/.h`), switches (`features.h`), build stamp (`version.h`) |
@@ -46,8 +47,11 @@ setup needs no cable.
 | `src/slideshow/` | UI mode manager and slideshow mode (`slideshow.c/.h`) |
 | `src/weather/` | Weather mode: request, NVS cache, rendering, icons |
 | `src/radio/` | Radio mode (`radio.c/.h`), HTTP/decode tasks with the ring buffer (`stream.c/.h`), `.pls` parser (`pls.c/.h`) |
+| `src/movie/` | Movie mode (`movie.c/.h`), H.264/MP3 playback engine (`player.c/.h`) and the MPEG-TS demuxer (`ts.c/.h`) |
 | `src/alarm/` | Daily alarm: detection, beep pattern, ringing screen |
 | `src/web/` | Setup web server (`webserver.c/.h`) plus the page assets; `pages.h` and `certs.h` are generated and git-ignored |
+| `scripts/build_movies.py` | Converts any video into a 240x240 H.264/MP3 `.ts` movie, needs ffmpeg |
+| `scripts/preview_movie.py` | Checks a `.ts` against what the box can decode, plays it or writes a Matroska copy, needs ffmpeg and ffplay |
 | `scripts/generate_font.py` | Regenerates `src/ui/font.h` from the TTFs in `scripts/fonts/` |
 | `scripts/generate_cert.sh` | Regenerates `src/web/certs.h`, called by the build |
 | `scripts/generate_web.py` | Regenerates `src/web/pages.h`, called before every build |
@@ -89,6 +93,8 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
   Serial/JTAG, which is the `/dev/ttyACM0` on the dev machine. That USB
   peripheral cannot survive light sleep, so keep `PM_LIGHT_SLEEP` off while
   working over it.
+- The BOOT button (GPIO 0) is free and carries the dual boot switch: a two
+  second hold restarts into the second firmware (see `docs/dual-boot.md`).
 - The QMI8658 six-axis IMU on the board is not used.
 - Panel: GC9A01, 240x240, inversion on, pins MOSI 2, SCLK 4, CS 5, DC 47,
   RST 38, backlight 42 (active low, PWM). SPI at 40 MHz.

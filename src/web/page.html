@@ -59,6 +59,15 @@ max='2000' step='50'></div>
 </fieldset>
 
 <fieldset>
+<legend>Movies</legend>
+<div class='g'>
+<div><label for='movie_dir'>Movie directory (.ts)
+<small id='movie_dir.def'></small></label>
+<input name='movie_dir' id='movie_dir' type='text'></div>
+</div>
+</fieldset>
+
+<fieldset>
 <legend>Backlight</legend>
 <div class='g'>
 <div><label for='backlight_full_pct'>Brightness while active (%)
@@ -185,6 +194,15 @@ autocomplete='new-password' placeholder='leave empty to keep'></div>
 </div>
 <p class='h'>The login is never empty. Changing the user or the password signs
 the browser out and asks for the new one right after saving.</p>
+</fieldset>
+
+<fieldset>
+<legend>Second firmware</legend>
+<p class='h'>The box can restart into xiaozhi-esp32, which lives in its own
+flash slot next to this firmware. On the box, a two second hold on the BOOT
+button switches in both directions, so this button here is only a shortcut.
+It stays disabled while the slot is empty.</p>
+<button class='d' id='xiaozhi' type='button' disabled>Start xiaozhi</button>
 </fieldset>
 
 </form>

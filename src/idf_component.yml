@@ -10,5 +10,9 @@ dependencies:
   # MP3 decoder of the radio mode: fixed point, about 30 kB, no IDF APIs. The
   # component is pure C, so it does not care about the IDF version.
   chmorgan/esp-libhelix-mp3: "^1.0.3"
+  # H.264 decoder of the movie mode: software decoding on the S3, about 1 MB
+  # of PSRAM for a 240x240 stream. The encoder half is ESP32-P4 only; the
+  # build only uses the decoder.
+  espressif/esp_h264: "^1.4.1"
   idf:
     version: ">=6.0.0"

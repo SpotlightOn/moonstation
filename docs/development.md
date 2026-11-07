@@ -1,7 +1,8 @@
 # Development
 
 Developer notes for the moonstation firmware. `README.md` has the user-facing
-overview, `docs/radio.md` the radio plan and its open points.
+overview, `docs/radio.md` the radio plan, `docs/movie.md` the movie plan and its
+open points.
 
 ## Layout
 
@@ -24,12 +25,14 @@ moonstation/
 │   ├── slideshow/           slideshow.c/.h (mode manager)
 │   ├── weather/             weather.c/.h, weather_icons.c/.h
 │   ├── radio/               radio.c/.h, stream.c/.h, pls.c/.h
+│   ├── movie/               movie.c/.h (mode), player.c/.h (playback)
 │   └── web/                 webserver.c/.h, page.html/.css/.js,
 │                            setup.html/.js, pages.h + certs.h (generated)
-├── scripts/                 build_slides.sh, generate_font.py,
+├── scripts/                 build_slides.sh, build_movies.py,
+│                            preview_movie.py, generate_font.py,
 │                            generate_cert.sh, generate_web.py,
 │                            pio_generate_web.py, fonts/
-└── docs/                    development.md, radio.md
+└── docs/                    development.md, radio.md, movie.md
 ```
 
 ## Prerequisites
@@ -272,6 +275,19 @@ the decoder waits on the lock and continues afterwards. The tone is generated in
 blocks of 512 samples on the heap: the touch task has a 3 kB stack and must not
 build a long tone in one piece.
 
+Closing the codec disables I2S, and that drops whatever the DMA still holds - one
+queue, six buffers of 240 frames, which is 60 ms at 24 kHz. A tone therefore waits
+for the queue to play out before the codec closes; without that wait its tail is
+cut off.
+
+Opening the codec resets the ES8311 and restarts its DAC and PLL, so the first
+samples after an open are lost. Every tone waits `CODEC_SETTLE_MS` (100 ms)
+before it writes audio. Without that wait a short beep vanished completely - the
+two-beep warning sounded as a single beep, and a longer tone only lost its
+attack. `audio_play_tone_pair()` plays two beeps with a gap through one open,
+which is what the low battery warning uses: 70 ms at 1500 Hz, 300 ms pause,
+70 ms at 1500 Hz.
+
 ## Battery
 
 `core/battery.c` reads the charge level from the voltage divider on GPIO 1 (ADC1
@@ -283,8 +299,11 @@ so no ADC calibration config is needed.
 A repeating `esp_timer` samples every `BATTERY_REFRESH_SEC` seconds and writes one
 log line per refresh with the raw ADC value, so a wrong percentage can be traced
 back to the sensor. The display only reads that cache and never starts a
-conversion itself. At `BATTERY_WARN_PCT` or less a short quiet beep sounds
-(`BATTERY_BEEP_VOLUME`). The monitor is initialized from `clock_init()`.
+conversion itself. At `BATTERY_WARN_PCT` or less two short quiet beeps sound
+(`BATTERY_BEEP_VOLUME`); the pair cannot be confused with the single tone a
+gesture answers with. The monitor is initialized from `clock_init()`. Nothing of
+it runs during clock deep sleep: the warning then comes right after the next
+wake-up, because the boot samples and refreshes the cache before the clock draws.
 
 ## UI modes
 
@@ -498,7 +517,7 @@ Nothing else in the firmware knows it exists.
   footer. The date and time are the compiler's `__DATE__`/`__TIME__`, so they are
   exactly the build of the binary answering; `FW_VERSION` is bumped by hand with
   the release tag. The same line is logged at boot (`moonstation boot, firmware
-  0.5.0 built ...`), which usually tells two builds apart from a serial capture.
+  0.6.0 built ...`), which usually tells two builds apart from a serial capture.
 - **Secrets**: `wifi_password`, `web_password` and `weather_api_key` carry the
   `secret` flag in `FIELDS` and are write-only. `GET /api/config` reports
   `<key>.set=0|1` instead of the value and no default (that would be the template

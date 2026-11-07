@@ -11,10 +11,11 @@
 #include "pins.h"
 #include "settings.h"
 
-// Tone of the low battery warning: deliberately short and quiet, it is meant
-// to inform rather than to startle.
+// Tone of the low battery warning: two short, quiet beeps, so the warning is
+// not mistaken for the single confirmation tone of a gesture.
 #define BATTERY_BEEP_FREQ_HZ 1500
-#define BATTERY_BEEP_MS 120
+#define BATTERY_BEEP_MS 70
+#define BATTERY_BEEP_GAP_MS 300
 
 static const char *TAG = "battery";
 
@@ -175,8 +176,8 @@ static void battery_refresh(void)
     if (settings.battery_warn_pct > 0 && sampled && cached_level >= 0 &&
         cached_level <= settings.battery_warn_pct) {
         ESP_LOGW(TAG, "battery low: %d%%", cached_level);
-        audio_play_tone_at(BATTERY_BEEP_FREQ_HZ, BATTERY_BEEP_MS,
-                           settings.battery_beep_volume);
+        audio_play_tone_pair(BATTERY_BEEP_FREQ_HZ, BATTERY_BEEP_MS,
+                             BATTERY_BEEP_GAP_MS, settings.battery_beep_volume);
     }
 }
 

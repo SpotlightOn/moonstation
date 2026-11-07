@@ -68,7 +68,7 @@ static bool drawn_paused = false;
 static void push(uint16_t *fb)
 {
     ui_status_draw(fb);
-    esp_lcd_panel_draw_bitmap(display_get_panel(), 0, 0, SCREEN_W, SCREEN_H, fb);
+    display_draw_bitmap(0, 0, SCREEN_W, SCREEN_H, fb);
 }
 
 static const char *state_text(void)
@@ -237,7 +237,10 @@ void radio_enter(void)
     backoff_step = 0;
     retry_at_us = 0;
     scan_stations();
-    if (station_count > 0) begin_stream();
+    // Entering a mode is not a request to play: a station that starts by itself
+    // is noise while the modes are cycled through, and the connect makes the
+    // next long press feel dead. The button starts it.
+    paused = station_count > 0;
     render();
     drawn_state = stream_state();
     drawn_index = station_index;

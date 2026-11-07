@@ -1,14 +1,19 @@
 # Moonstation
 
+[![CI](https://github.com/SpotlightOn/moonstation/actions/workflows/ci.yml/badge.svg)](https://github.com/SpotlightOn/moonstation/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SpotlightOn/moonstation?label=release&sort=semver)](https://github.com/SpotlightOn/moonstation/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%7C%20ESP--IDF%206.1-informational)](https://github.com/SpotlightOn/moonstation#hardware)
+
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
-JPEG images from an SD card, a clock with date and battery, a weather mode and
-an MP3 internet radio, switched by a long press on the touch screen. A 5 s hold
-opens a setup page over HTTPS where WiFi, timings, levels, the alarm and the
-weather key are changed without a rebuild; a box that has never been on a
-network opens its own access point for that page.
+JPEG images from an SD card, a clock with date and battery, a weather mode, an
+MP3 internet radio and an H.264 movie player, switched by a long press on the
+touch screen. A 5 s hold opens a setup page over HTTPS where WiFi, timings,
+levels, the alarm and the weather key are changed without a rebuild; a box that
+has never been on a network opens its own access point for that page.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
+https://www.aliexpress.com/item/1005010288236253.html
 
 ## Features
 
@@ -23,21 +28,32 @@ network opens its own access point for that page.
   third goes back. Refreshed every 20 minutes and cached in NVS, so the last
   reading survives a reboot without WiFi
 - Radio mode (`RADIO_ENABLE`, on by default): MP3 streams from `.pls` playlists
-  on the card, one file per station, `http://` only. A drawn button plays and
-  pauses, a tap above it is louder and below it quieter, a horizontal swipe
-  changes the station; missing playlist, missing WiFi and an unreachable
-  station each get their own line and the mode keeps retrying
+  on the card, one file per station, `http://` only. Entering the mode starts
+  nothing; the drawn button plays and pauses, a tap above it is louder and below
+  it quieter, a horizontal swipe changes the station; missing playlist, missing
+  WiFi and an unreachable station each get their own line and the mode keeps
+  retrying
+- Movie mode (`MOVIE_ENABLE`, on by default): H.264 movies from `/movies` on the
+  card, decoded in software and played with their MP3 sound. Entering the mode
+  shows the name of the file, nothing runs until a tap; a tap then pauses and
+  continues, a horizontal swipe picks the next or previous movie, and a movie
+  that reaches its end starts over. `scripts/build_movies.py` turns any video
+  into the right size, codec and frame rate; every movie is one MPEG-TS file
+  (`.ts`), so the same file opens in VLC, mpv and ffmpeg as it is
 - Long press (over 0.5 s, released) cycles clock -> slideshow ->
-  clock+slideshow -> weather -> radio -> clock (the last two if built in); the
-  box boots into clock mode. Only a hold that stays on for 5 s opens the setup
-  page, so a quick press never can
-- Setup web UI over HTTPS with a login: WiFi, slideshow and radio directories,
-  interval, crossfade, backlight, night window and deep sleep, NTP, timezone,
-  alarm, audio, battery and weather. Everything is stored in NVS and applied at
-  runtime; "Reset to default" restores the firmware defaults, and the page
-  footer names the firmware version and build time. A red dot on the lower edge
-  shows that it runs, the display shows its address, and it closes itself when
-  idle
+  clock+slideshow -> weather -> radio -> movie -> clock (each step if built in);
+  the box boots into clock mode. Only a hold that stays on for 5 s opens the
+  setup page, so a quick press never can
+- Dual boot: a two second hold on the BOOT button (GPIO 0, used by nothing
+  else) restarts the box into the second firmware, xiaozhi-esp32, and the same
+  hold there comes back. No touch gesture changes meaning
+- Setup web UI over HTTPS with a login: WiFi, slideshow, radio and movie
+  directories, interval, crossfade, backlight, night window and deep sleep, NTP,
+  timezone, alarm, audio, battery and weather. Everything is stored in NVS and
+  applied at runtime; "Reset to default" restores the firmware defaults, and the
+  page footer names the firmware version and build time. A red dot on the lower
+  edge shows that it runs, the display shows its address, and it closes itself
+  when idle
 - First setup without a cable: a box without WiFi opens the access point
   `Moonstation-XXXX` at `192.168.4.1` and serves the page there
 - No secrets in the source: WiFi, the page login and the weather key are typed
@@ -60,6 +76,7 @@ network opens its own access point for that page.
 - PlatformIO (use the bundled venv binary shown below)
 - Python 3 with Pillow (only for regenerating the fonts)
 - ImageMagick 7 (`magick`) for preparing slide images
+- FFmpeg with libx264 and libmp3lame for preparing movies
 - OpenSSL (the build generates the self-signed certificate of the setup page)
 
 ## Build, flash, monitor
@@ -77,6 +94,24 @@ Serial capture without the monitor:
 ```bash
 stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ```
+
+The upload writes the bootloader, the partition table and the app, so it also
+creates the layout of the second firmware in one go: `factory` (this one),
+`ota_0`/`ota_1` and the 4 MB `assets` partition. The xiaozhi slots stay empty
+and the setup-page button stays disabled until they are filled.
+
+One-time step, only when the box still carries the old single-app table (the PHY
+calibration used to sit at 0xe000, where `otadata` lives now):
+
+```bash
+~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  --chip esp32s3 -p /dev/ttyACM0 -b 921600 erase_region 0xe000 0x2000
+```
+
+xiaozhi is added later by writing its app and assets only, never its bootloader,
+partition table or `ota_data_initial.bin` (those would replace the shared
+layout). A two second hold on the BOOT button switches in both directions.
+Build and update details: [docs/dual-boot.md](docs/dual-boot.md).
 
 ## First setup
 
@@ -113,6 +148,11 @@ over its own access point). A changed login takes effect immediately and the
 browser asks for the new one right after saving. The password and the weather
 key are write-only: the page reports only whether one is stored, an empty field
 keeps it, and a checkbox erases the WiFi password or the key.
+
+The page can also hand the next boot to xiaozhi-esp32, which lives in its own
+flash slot; the button stays disabled while that slot is empty. Without a
+browser the same switch is a two second hold on the BOOT button, in both
+directions ([docs/dual-boot.md](docs/dual-boot.md)).
 
 ## Configuration
 
@@ -155,6 +195,7 @@ that file.
 | `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
 | `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
 | `RADIO_DIR` | `/radio` | folder with the `.pls` playlists of the radio mode |
+| `MOVIE_DIR` | `/movies` | folder with the movies of the movie mode |
 | `ALARM_ENABLED` | `0` | alarm switch at boot (1 = on) |
 | `ALARM_HOUR` | `7` | local hour of the alarm (0-23) |
 | `ALARM_MINUTE` | `0` | minute of the alarm (0-59) |
@@ -199,6 +240,54 @@ order. `scripts/build_slides.sh` converts arbitrary images with ImageMagick 7:
 
 Then copy the output to the card.
 
+## Movies
+
+The movie mode plays MPEG-TS files (`.ts`) from `/movies`. The panel, the
+software decoder and the CPU decide what a movie may look like, so let the
+script do the conversion instead of copying a video to the card as it is:
+
+```bash
+./scripts/build_movies.py /path/to/movie.mp4
+./scripts/build_movies.py -o /path/to/output /path/to/*.mp4
+```
+
+It writes 240x240 H.264 constrained baseline at 15 fps: the picture is scaled
+to fill the panel and the overflow is cut at the left and right, so a 16:9
+video has no bars (`--fit pad` keeps the whole picture with black bars
+instead). The sound becomes 44.1 kHz mono MP3 at 48 kbit/s: the box has one
+small speaker, so a second channel would only cost bytes and decoder time. The
+movie is cut after two minutes (`--max-seconds`, `0` keeps all of it) and both
+streams are copied into MPEG-TS packets, without re-encoding, as `<name>.ts`.
+`--fps`, `--crf`, `--fit`, `--size`, `--no-audio` and `--output` are the other
+options.
+
+The software decoder is the limit, not the bitrate: 240x240 at 15 fps is
+already close to what it manages, and next to a sound track the picture falls
+behind and stutters. `--fps 12` plays smoothly with sound, `--size 192` decodes
+about a third fewer pixels, and `--no-audio` keeps the higher rate for a silent
+movie. The script warns when 15 fps meets a sound track.
+
+Copy the results to the card and keep the names: the mode plays the files in
+name order, and a swipe left or right moves forward or back.
+
+MPEG-TS is a standard container, so a movie on the card plays in VLC, mpv and
+ffmpeg as it is; nothing has to be converted to look at it on a desktop. The
+container costs about 15 % more space than the raw streams, because every
+transport packet is a fixed 188 bytes and a frame rarely fills one exactly.
+`./scripts/preview_movie.py` prints what is inside a movie, checks it against
+what the box can do and plays it with ffplay; `-o` writes a Matroska copy
+(video and sound copied, not re-encoded):
+
+```bash
+./scripts/preview_movie.py movies/holiday.ts
+./scripts/preview_movie.py -o /tmp/holiday.mkv movies/holiday.ts
+```
+
+A movie that reaches its end starts over, so the box keeps showing something
+until the next swipe or the next mode. A tap pauses and continues; the volume
+keeps the global vertical swipe in every mode. Movies are silent for the length
+of the alarm while it rings, because the alarm owns the speaker and the screen.
+
 ## Hardware
 
 Board: Spotpear ESP32-S3 1.28" BOX, the N16R8 variant that Spotpear also sells
@@ -229,4 +318,6 @@ as an AI desktop assistant running Xiaozhi.
 CI runs cppcheck and a full firmware build on every push to `main` and on pull
 requests; pushing a `v*` tag publishes a GitHub Release with the binaries. See
 [docs/development.md](docs/development.md) for internals, hardware notes and the
-font regeneration.
+font regeneration. [docs/dual-boot.md](docs/dual-boot.md) describes the shared
+flash: moonstation and xiaozhi-esp32 side by side, the switch and the update
+rules.

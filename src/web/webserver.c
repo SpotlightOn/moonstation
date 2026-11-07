@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 
 #include "clock.h"
+#include "bootswitch.h"
 #include "power.h"
 #include "net.h"
 #include "settings.h"
@@ -148,6 +149,7 @@ static const field_t FIELDS[] = {
     SECRET_FIELD(wifi_password, 65),
     FIELD(slide_dir, F_STR, 32, 0, 0),
     FIELD(radio_dir, F_STR, 32, 0, 0),
+    FIELD(movie_dir, F_STR, 32, 0, 0),
     FIELD(slide_interval_ms, F_U32, 0, 1000, 3600000),
     FIELD(slide_fade_ms, F_U16, 0, 0, 2000),
     FIELD(backlight_full_pct, F_U8, 0, 10, 100),
@@ -390,6 +392,12 @@ static esp_err_t config_get(httpd_req_t *req)
     snprintf(resp_buf + pos, sizeof(resp_buf) - pos, "&fw_version=%s&fw_built=%s",
              ver, built);
 
+    // Whether the second firmware is flashed. The page disables its button
+    // otherwise, because the switch would only answer 404.
+    pos += strlen(resp_buf + pos);
+    snprintf(resp_buf + pos, sizeof(resp_buf) - pos, "&xiaozhi_available=%d",
+             bootswitch_xiaozhi_available() ? 1 : 0);
+
     httpd_resp_set_type(req, "application/x-www-form-urlencoded");
     return httpd_resp_send(req, resp_buf, HTTPD_RESP_USE_STRLEN);
 }
@@ -593,6 +601,27 @@ static esp_err_t shutdown_post(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Hands the next boot to the second firmware. Only offered when its slot holds
+// an image: selecting an empty partition would leave the box without a working
+// firmware until it is reflashed over USB.
+static esp_err_t boot_post(httpd_req_t *req)
+{
+    if (!auth_ok(req)) return deny(req);
+    touch_activity();
+    if (settings_web_login_is_default()) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
+                                   "set up your login first");
+    }
+    if (!bootswitch_to_xiaozhi()) {
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND,
+                                   "no xiaozhi image stored");
+    }
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_send(req, "booting xiaozhi", HTTPD_RESP_USE_STRLEN);
+    reboot_soon(); // after the response has gone out
+    return ESP_OK;
+}
+
 static const httpd_uri_t URI_INDEX = {
     .uri = "/", .method = HTTP_GET, .handler = index_get,
 };
@@ -607,6 +636,9 @@ static const httpd_uri_t URI_SHUTDOWN = {
 };
 static const httpd_uri_t URI_RESET = {
     .uri = "/api/reset", .method = HTTP_POST, .handler = reset_post,
+};
+static const httpd_uri_t URI_BOOT = {
+    .uri = "/api/boot/xiaozhi", .method = HTTP_POST, .handler = boot_post,
 };
 
 //
@@ -733,6 +765,7 @@ static bool start_server(void)
     httpd_register_uri_handler(server, &URI_CONFIG_POST);
     httpd_register_uri_handler(server, &URI_SHUTDOWN);
     httpd_register_uri_handler(server, &URI_RESET);
+    httpd_register_uri_handler(server, &URI_BOOT);
 
     server_on_ap = on_ap;
     snprintf(ui_status.ip, sizeof(ui_status.ip), IPSTR, IP2STR(&ip.ip));

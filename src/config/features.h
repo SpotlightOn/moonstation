@@ -76,6 +76,16 @@
 #define RADIO_ENABLE 1
 #endif
 
+// Movie mode (1 = on, 0 = off). One adds the sixth mode to the long-press
+// cycle: a video player for the MPEG-TS (.ts) files in MOVIE_DIR on the SD
+// card, built from any video with scripts/build_movies.py. Tap pauses and
+// continues, a horizontal swipe picks the next or previous file. Without files
+// the mode shows a hint instead of a picture, so it costs nothing to leave on;
+// zero leaves the module out of the cycle and the other modes untouched.
+#ifndef MOVIE_ENABLE
+#define MOVIE_ENABLE 1
+#endif
+
 // Frame buffer dump for layout debugging (1 = on, 0 = off). On, the firmware
 // writes the frame after every mode switch as a BMP to /sdcard/screens, so the
 // picture can be looked at on a computer without a camera in front of the
