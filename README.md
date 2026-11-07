@@ -1,5 +1,9 @@
 # Moonstation
 
+[![CI](https://github.com/SpotlightOn/moonstation/actions/workflows/ci.yml/badge.svg)](https://github.com/SpotlightOn/moonstation/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SpotlightOn/moonstation?label=release&sort=semver)](https://github.com/SpotlightOn/moonstation/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%7C%20ESP--IDF%206.1-informational)](https://github.com/SpotlightOn/moonstation#hardware)
+
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
 round display), built with PlatformIO. It runs an endless slideshow of 240x240
 JPEG images from an SD card, a clock with date and battery, a weather mode, an
