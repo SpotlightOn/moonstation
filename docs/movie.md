@@ -119,12 +119,19 @@ of the firmware - it belongs on the charger, like the radio.
 
 | Gesture | In the movie mode |
 | --- | --- |
-| Tap | pause / continue |
+| Tap | start (while browsing), pause / continue (while playing) |
 | Swipe left | next movie |
 | Swipe right | previous movie |
 | Swipe up / down | volume, unchanged (global) |
 | Long press (>= 500 ms) | next mode |
 | Hold 5 s without moving | setup page |
+
+Entering the mode starts nothing: the screen shows the file a tap would play,
+`Tap to play 2/3` over the name, and a swipe moves through the names the same
+way. That keeps the mode silent and responsive while the modes are cycled
+through, and it shows a name that is otherwise only visible in the pause
+overlay. The first picture of the movie overwrites it, so there is nothing to
+hide.
 
 The pause is cooperative: both tasks poll one flag, so the picture holds its
 frame and the MP3 decoder keeps its position; the codec closes so the speaker

@@ -24,12 +24,14 @@ https://www.aliexpress.com/item/1005010288236253.html
   third goes back. Refreshed every 20 minutes and cached in NVS, so the last
   reading survives a reboot without WiFi
 - Radio mode (`RADIO_ENABLE`, on by default): MP3 streams from `.pls` playlists
-  on the card, one file per station, `http://` only. A drawn button plays and
-  pauses, a tap above it is louder and below it quieter, a horizontal swipe
-  changes the station; missing playlist, missing WiFi and an unreachable
-  station each get their own line and the mode keeps retrying
+  on the card, one file per station, `http://` only. Entering the mode starts
+  nothing; the drawn button plays and pauses, a tap above it is louder and below
+  it quieter, a horizontal swipe changes the station; missing playlist, missing
+  WiFi and an unreachable station each get their own line and the mode keeps
+  retrying
 - Movie mode (`MOVIE_ENABLE`, on by default): H.264 movies from `/movies` on the
-  card, decoded in software and played with their MP3 sound. A tap pauses and
+  card, decoded in software and played with their MP3 sound. Entering the mode
+  shows the name of the file, nothing runs until a tap; a tap then pauses and
   continues, a horizontal swipe picks the next or previous movie, and a movie
   that reaches its end starts over. `scripts/build_movies.py` turns any video
   into the right size, codec and frame rate; every movie is one MPEG-TS file

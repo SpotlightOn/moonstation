@@ -183,9 +183,11 @@ State machine: `Idle -> Connecting -> Buffering -> Playing -> (Paused |
 Reconnecting | Failed)`.
 
 - `radio_enter()`: ensure the card is mounted, scan and parse the playlists,
-  remember the index, start the stream task, take `POWER_PROFILE_BOOST` and
-  `net_wifi_hold()`. No WiFi or no playlist: own hint screen, no task, no error
-  churn.
+  remember the index and take the power/WiFi holds, but start nothing: a station
+  that plays the moment the mode appears is noise while the modes are cycled
+  through and it makes the next long press feel dead. The button starts it, and
+  only then does the stream task run. No WiFi or no playlist: own hint screen,
+  no task, no error churn.
 - `radio_exit()`: stop the task, close the codec, release power and WiFi, free
   the ring. Nothing plays outside the mode.
 - Tap on the button toggles pause (the task stops reading and the codec closes;

@@ -28,6 +28,8 @@
 
 - Tones were cut off when the codec closed; they now play out first.
 - The first tone after a codec open was lost; tones now wait for the codec.
+- Entering the radio or the movie mode starts nothing until a tap: the radio
+  shows the station, the movie mode the file name.
 - The box froze while a movie played and the volume bar showed up: the overlay
   and the picture task pushed to the panel at the same time, and two tasks in
   the LCD's SPI driver can leave a transfer that never completes. Every push now

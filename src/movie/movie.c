@@ -34,6 +34,7 @@ static const char *TAG = "movie_ui";
 
 typedef enum {
     ST_EMPTY,   // nothing to play (no card, no files)
+    ST_READY,   // a file is chosen and its name is on screen, not started yet
     ST_PLAYING,
     ST_PAUSED,
     ST_ERROR,   // the current file could not be played
@@ -171,17 +172,37 @@ static void scan_movies(void)
     }
     closedir(d);
     qsort(paths, count, sizeof(char *), cmp_str);
+    // A card that lost files must not leave the index past the end.
+    if (movie_index >= count) movie_index = 0;
     ESP_LOGI(TAG, "found %u movies in %s", (unsigned)count, dir);
+}
+
+static void show_no_movies(void)
+{
+    char bottom[64];
+    snprintf(bottom, sizeof(bottom), "Add .ts files to %s", settings.movie_dir);
+    show_hint("No movies", bottom, COL_WARN);
+    state = ST_EMPTY;
+}
+
+// Nothing plays yet: the name of the file a tap would start is the whole
+// screen, so a folder can be looked through without a movie running. The first
+// picture overwrites it, so it needs no hiding of its own.
+static void show_ready(void)
+{
+    char top[32];
+    snprintf(top, sizeof(top), "Tap to play %u/%u", (unsigned)(movie_index + 1),
+             (unsigned)count);
+    char name[64];
+    base_name(paths[movie_index], name, sizeof(name));
+    show_hint(top, name, COL_TEXT);
+    state = ST_READY;
 }
 
 static void start_current(void)
 {
     if (count == 0) {
-        char bottom[64];
-        snprintf(bottom, sizeof(bottom), "Add .ts files to %s",
-                 settings.movie_dir);
-        show_hint("No movies", bottom, COL_WARN);
-        state = ST_EMPTY;
+        show_no_movies();
         return;
     }
     const esp_err_t err = movie_player_start(paths[movie_index]);
@@ -204,12 +225,10 @@ void movie_enter(void)
     state = ST_EMPTY;
     scan_movies();
     if (count == 0) {
-        char bottom[64];
-        snprintf(bottom, sizeof(bottom), "Add .ts files to %s",
-                 settings.movie_dir);
-        show_hint("No movies", bottom, COL_WARN);
+        show_no_movies();
     } else {
-        start_current();
+        // The folder opens in browsing state; a tap starts the movie.
+        show_ready();
     }
     screenshot_capture("movie");
 }
@@ -226,7 +245,7 @@ void movie_redraw(void)
 {
     if (state == ST_PAUSED) {
         show_paused();
-    } else if (state == ST_EMPTY || state == ST_ERROR) {
+    } else if (state == ST_EMPTY || state == ST_READY || state == ST_ERROR) {
         render_hint();
     }
 }
@@ -267,7 +286,11 @@ void movie_on_wake(void)
     const int swipe = __atomic_exchange_n(&swipe_pending, 0, __ATOMIC_SEQ_CST);
     if (swipe != 0 && count > 0) {
         movie_index = (movie_index + (swipe > 0 ? 1 : -1) + count) % count;
-        start_current();
+        if (state == ST_PLAYING || state == ST_PAUSED) {
+            start_current(); // another file while watching, as before
+        } else {
+            show_ready(); // browsing: the name changes, nothing starts
+        }
         return;
     }
 
@@ -276,9 +299,14 @@ void movie_on_wake(void)
         if (state == ST_PLAYING || state == ST_PAUSED) {
             toggle_pause();
         } else {
-            // Nothing playing: any tap asks for a fresh look at the card.
+            // Nothing playing: the tap is the start, and it is also the chance
+            // to look at the card again.
             scan_movies();
-            start_current();
+            if (count == 0) {
+                show_no_movies();
+            } else {
+                start_current();
+            }
         }
         return;
     }

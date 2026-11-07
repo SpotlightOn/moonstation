@@ -237,7 +237,10 @@ void radio_enter(void)
     backoff_step = 0;
     retry_at_us = 0;
     scan_stations();
-    if (station_count > 0) begin_stream();
+    // Entering a mode is not a request to play: a station that starts by itself
+    // is noise while the modes are cycled through, and the connect makes the
+    // next long press feel dead. The button starts it.
+    paused = station_count > 0;
     render();
     drawn_state = stream_state();
     drawn_index = station_index;
