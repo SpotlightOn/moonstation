@@ -4,6 +4,9 @@
 
 **New**
 
+- Dual boot with xiaozhi-esp32: a two second hold on the BOOT button switches
+  between the two firmwares, and the setup page can hand the next boot over.
+  See `docs/dual-boot.md`.
 - Movie mode (`MOVIE_ENABLE`, on by default): H.264 videos from `/movies` on the
   SD card, decoded in software (`espressif/esp_h264`) and played with their MP3
   sound track on the panel and the speaker. A tap pauses and continues, a

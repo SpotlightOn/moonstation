@@ -5,6 +5,7 @@ var f = document.getElementById('f');
 var m = document.getElementById('m');
 var at = document.getElementById('alarm_time');
 var ver = document.getElementById('ver');
+var xz = document.getElementById('xiaozhi');
 
 function say(t) { m.textContent = t; }
 
@@ -43,6 +44,13 @@ function loadAlarmTime(d) {
   }
 }
 
+// The second firmware is optional. The box reports whether its slot holds an
+// image; until it does the button stays disabled.
+function loadXiaozhi(d) {
+  if (!xz) return;
+  xz.disabled = (d.get('xiaozhi_available') != '1');
+}
+
 function load() {
   fetch('/api/config')
     .then(function(r) { return r.text(); })
@@ -50,6 +58,7 @@ function load() {
       var d = new URLSearchParams(t);
       loadVersion(d);
       loadAlarmTime(d);
+      loadXiaozhi(d);
       Array.prototype.forEach.call(f.elements, function(i) {
         if (!i.id) return;
         if (i.id.slice(-6) == '.clear') { i.checked = false; return; }
@@ -128,7 +137,22 @@ function stopServer() {
   setTimeout(function() { say('server stopped'); }, 3000);
 }
 
+// The box restarts into the other firmware, so the connection drops: a failed
+// request at this point is the expected outcome, not an error to report.
+// The same switch works on the box with a two second hold on the BOOT button.
+function startXiaozhi() {
+  if (!confirm('Restart into xiaozhi-esp32? A two second hold on the BOOT button switches back.')) return;
+  say('starting xiaozhi');
+  fetch('/api/boot/xiaozhi', { method: 'POST' })
+    .then(function(r) {
+      say(r.ok ? 'starting xiaozhi, this page goes away'
+               : 'the slot holds no xiaozhi image');
+    })
+    .catch(function() { say('starting xiaozhi, this page goes away'); });
+}
+
 f.addEventListener('submit', function(e) { e.preventDefault(); save(); });
 document.getElementById('reset').addEventListener('click', defaults);
 document.getElementById('stop').addEventListener('click', stopServer);
+if (xz) xz.addEventListener('click', startXiaozhi);
 load();

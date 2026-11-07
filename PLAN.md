@@ -29,7 +29,8 @@ in the xiaozhi-esp32 reference and `src/main.cpp` in ESP32S3-SDcard-Video.
 ## 2. PlatformIO setup
 
 - `platformio.ini` with `framework = espidf`, `board = esp32-s3-devkitc-1`.
-- Flash: 16 MB, `board_build.partitions = partitions_16mb.csv`, 4 MB app slot.
+- Flash: 16 MB, `board_build.partitions = partitions_16mb.csv`, 3 MB factory
+  slot plus the xiaozhi partitions (see `docs/dual-boot.md`).
 - CPU 80 MHz, USB CDC on boot (`-DARDUINO_USB_CDC_ON_BOOT` is Arduino-only;
   for ESP-IDF use the USB serial JTAG / CDC console as configured by the framework).
 - `board_build.flash_mode = qio`, `board_build.flash_size = 16MB`.

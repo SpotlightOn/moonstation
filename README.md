@@ -38,6 +38,9 @@ https://www.aliexpress.com/item/1005010288236253.html
   clock+slideshow -> weather -> radio -> movie -> clock (each step if built in);
   the box boots into clock mode. Only a hold that stays on for 5 s opens the
   setup page, so a quick press never can
+- Dual boot: a two second hold on the BOOT button (GPIO 0, used by nothing
+  else) restarts the box into the second firmware, xiaozhi-esp32, and the same
+  hold there comes back. No touch gesture changes meaning
 - Setup web UI over HTTPS with a login: WiFi, slideshow, radio and movie
   directories, interval, crossfade, backlight, night window and deep sleep, NTP,
   timezone, alarm, audio, battery and weather. Everything is stored in NVS and
@@ -86,6 +89,24 @@ Serial capture without the monitor:
 stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ```
 
+The upload writes the bootloader, the partition table and the app, so it also
+creates the layout of the second firmware in one go: `factory` (this one),
+`ota_0`/`ota_1` and the 4 MB `assets` partition. The xiaozhi slots stay empty
+and the setup-page button stays disabled until they are filled.
+
+One-time step, only when the box still carries the old single-app table (the PHY
+calibration used to sit at 0xe000, where `otadata` lives now):
+
+```bash
+~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py \
+  --chip esp32s3 -p /dev/ttyACM0 -b 921600 erase_region 0xe000 0x2000
+```
+
+xiaozhi is added later by writing its app and assets only, never its bootloader,
+partition table or `ota_data_initial.bin` (those would replace the shared
+layout). A two second hold on the BOOT button switches in both directions.
+Build and update details: [docs/dual-boot.md](docs/dual-boot.md).
+
 ## First setup
 
 A new or erased box has no WiFi credentials, so it opens an access point and
@@ -121,6 +142,11 @@ over its own access point). A changed login takes effect immediately and the
 browser asks for the new one right after saving. The password and the weather
 key are write-only: the page reports only whether one is stored, an empty field
 keeps it, and a checkbox erases the WiFi password or the key.
+
+The page can also hand the next boot to xiaozhi-esp32, which lives in its own
+flash slot; the button stays disabled while that slot is empty. Without a
+browser the same switch is a two second hold on the BOOT button, in both
+directions ([docs/dual-boot.md](docs/dual-boot.md)).
 
 ## Configuration
 
@@ -286,4 +312,6 @@ as an AI desktop assistant running Xiaozhi.
 CI runs cppcheck and a full firmware build on every push to `main` and on pull
 requests; pushing a `v*` tag publishes a GitHub Release with the binaries. See
 [docs/development.md](docs/development.md) for internals, hardware notes and the
-font regeneration.
+font regeneration. [docs/dual-boot.md](docs/dual-boot.md) describes the shared
+flash: moonstation and xiaozhi-esp32 side by side, the switch and the update
+rules.

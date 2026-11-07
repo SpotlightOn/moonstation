@@ -37,7 +37,7 @@ A box without WiFi credentials opens its own access point (Moonstation-XXXX,
 | Path | Purpose |
 | --- | --- |
 | `platformio.ini` | Single env `spotpear_esp32s3`, espidf framework |
-| `partitions_16mb.csv` | 16 MB flash, 4 MB factory app |
+| `partitions_16mb.csv` | 16 MB flash: `factory` (moonstation, 3 MB), `ota_0`/`ota_1` (xiaozhi, 3.5 MB each), `assets` (4 MB) |
 | `CMakeLists.txt`, `src/CMakeLists.txt` | Top-level project and main component |
 | `src/main.c` | Entry point (`app_main`) |
 | `src/config/` | Defaults from `config.h`, NVS overlay (`settings.c/.h`), switches (`features.h`), build stamp (`version.h`) |
@@ -93,6 +93,8 @@ GitHub Release with the firmware binaries when a `v*` tag is pushed.
   Serial/JTAG, which is the `/dev/ttyACM0` on the dev machine. That USB
   peripheral cannot survive light sleep, so keep `PM_LIGHT_SLEEP` off while
   working over it.
+- The BOOT button (GPIO 0) is free and carries the dual boot switch: a two
+  second hold restarts into the second firmware (see `docs/dual-boot.md`).
 - The QMI8658 six-axis IMU on the board is not used.
 - Panel: GC9A01, 240x240, inversion on, pins MOSI 2, SCLK 4, CS 5, DC 47,
   RST 38, backlight 42 (active low, PWM). SPI at 40 MHz.

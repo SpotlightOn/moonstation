@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "display.h"
 #include "audio.h"
+#include "bootswitch.h"
 #include "power.h"
 #include "settings.h"
 #include "slideshow.h"
@@ -53,6 +54,8 @@ void app_main(void)
     if (audio_init() != ESP_OK) {
         ESP_LOGW(TAG, "audio init failed");
     }
+
+    bootswitch_start_button_monitor(); // BOOT button: hand the boot to xiaozhi
 
     slideshow_run();
 }

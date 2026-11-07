@@ -1,6 +1,15 @@
 # Partition table for 16 MB flash
+#
+# Two firmwares share the flash: moonstation in factory, xiaozhi-esp32 in
+# ota_0 (ota_1 is its own update slot). Switching is a boot partition change
+# plus a restart, see docs/dual-boot.md. The assets partition holds the
+# xiaozhi wake-word and theme image; nothing in this firmware mounts it.
+#
 # Name,   Type, SubType, Offset,   Size,     Flags
 nvs,      data, nvs,     0x9000,   0x5000,
-phy_init, data, phy,     0xe000,   0x1000,
-factory,  app,  factory, 0x10000,  0x400000,
-spiffs,   data, spiffs,  0x410000, 0xBF0000,
+otadata,  data, ota,     0xe000,   0x2000,
+factory,  app,  factory, 0x10000,  0x300000,
+ota_0,    app,  ota_0,   0x310000, 0x380000,
+ota_1,    app,  ota_1,   0x690000, 0x380000,
+assets,   data, spiffs,  0xa10000, 0x400000,
+phy_init, data, phy,     0xe10000, 0x1000,
