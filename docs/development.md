@@ -83,9 +83,10 @@ example plus an `#ifndef` fallback in `src/config/settings.c`.
 macros land in `settings_t`, NVS overlays stored values on top (`settings_init()`
 at boot, `settings_save()` after a change), and the modules read the struct.
 Without NVS content the firmware behaves exactly like the macros say; the web UI
-only adds a way to change the subset that makes sense at runtime. The table in `README.md` lists the user-facing macros with their
-defaults; the ones only in the template are `WEATHER_API_KEY` (empty, a key never
-belongs in the README) and the build switches `BATTERY_SAMPLE_COUNT`,
+only adds a way to change the subset that makes sense at runtime. The table in
+`configuration.md` lists the user-facing macros with their defaults; the ones
+only in the template are `WEATHER_API_KEY` (empty, a key never belongs in
+documentation) and the build switches `BATTERY_SAMPLE_COUNT`,
 `SCREENSHOT_ENABLE` and `SCREENSHOT_SERIAL` (see `features.h`).
 
 Optional WiFi settings enable NTP time sync for the clock mode. A box without

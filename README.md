@@ -2,74 +2,47 @@
 
 [![CI](https://github.com/SpotlightOn/moonstation/actions/workflows/ci.yml/badge.svg)](https://github.com/SpotlightOn/moonstation/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/SpotlightOn/moonstation?label=release&sort=semver)](https://github.com/SpotlightOn/moonstation/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%7C%20ESP--IDF%206.1-informational)](https://github.com/SpotlightOn/moonstation#hardware)
+[![Platform](https://img.shields.io/badge/platform-ESP32--S3%20%7C%20ESP--IDF%206.1-informational)](docs/hardware.md)
 
 ESP-IDF firmware for the Spotpear ESP32-S3 1.28" BOX board (GC9A01 240x240
-round display), built with PlatformIO. It runs an endless slideshow of 240x240
-JPEG images from an SD card, a clock with date and battery, a weather mode, an
-MP3 internet radio and an H.264 movie player, switched by a long press on the
-touch screen. A 5 s hold opens a setup page over HTTPS where WiFi, timings,
-levels, the alarm and the weather key are changed without a rebuild; a box that
-has never been on a network opens its own access point for that page.
+round display), built with PlatformIO. It shows an endless slideshow of JPEGs
+from an SD card, a clock with date and battery, a weather mode, an MP3 internet
+radio and an H.264 movie player, switched by a long press on the touch screen.
+A 5 s hold opens an HTTPS setup page for everything the owner tunes; a box that
+has never been on a network opens its own access point for that page, so the
+first setup needs no cable.
 
 ![Spotpear Box 1.28](docs/spotpear-box.avif)
 https://www.aliexpress.com/item/1005010288236253.html
 
 ## Features
 
-- Endless slideshow of 240x240 baseline JPEGs, sorted by file name, optional
-  crossfade between two images; a tap advances immediately
-- Clock mode with HH:MM, weekday and date, redrawn only when the minute
-  changes, with a small jitter against burn-in. Below it the battery: icon,
-  percentage and an arrow while charging. With `CLOCK_DEEP_SLEEP` the display
-  stays dark inside the night window and a touch lights it up
-- Weather mode (`WEATHER_ENABLE`, on by default): current conditions from
-  OpenWeather, a tap shows the next 24 hours, another the next five days, a
-  third goes back. Refreshed every 20 minutes and cached in NVS, so the last
-  reading survives a reboot without WiFi
-- Radio mode (`RADIO_ENABLE`, on by default): MP3 streams from `.pls` playlists
-  on the card, one file per station, `http://` only. Entering the mode starts
-  nothing; the drawn button plays and pauses, a tap above it is louder and below
-  it quieter, a horizontal swipe changes the station; missing playlist, missing
-  WiFi and an unreachable station each get their own line and the mode keeps
-  retrying
-- Movie mode (`MOVIE_ENABLE`, on by default): H.264 movies from `/movies` on the
-  card, decoded in software and played with their MP3 sound. Entering the mode
-  shows the name of the file, nothing runs until a tap; a tap then pauses and
-  continues, a horizontal swipe picks the next or previous movie, and a movie
-  that reaches its end starts over. `scripts/build_movies.py` turns any video
-  into the right size, codec and frame rate; every movie is one MPEG-TS file
-  (`.ts`), so the same file opens in VLC, mpv and ffmpeg as it is
-- Long press (over 0.5 s, released) cycles clock -> slideshow ->
-  clock+slideshow -> weather -> radio -> movie -> clock (each step if built in);
-  the box boots into clock mode. Only a hold that stays on for 5 s opens the
-  setup page, so a quick press never can
-- Dual boot: a two second hold on the BOOT button (GPIO 0, used by nothing
-  else) restarts the box into the second firmware, xiaozhi-esp32, and the same
-  hold there comes back. No touch gesture changes meaning
-- Setup web UI over HTTPS with a login: WiFi, slideshow, radio and movie
-  directories, interval, crossfade, backlight, night window and deep sleep, NTP,
-  timezone, alarm, audio, battery and weather. Everything is stored in NVS and
-  applied at runtime; "Reset to default" restores the firmware defaults, and the
-  page footer names the firmware version and build time. A red dot on the lower
-  edge shows that it runs, the display shows its address, and it closes itself
-  when idle
-- First setup without a cable: a box without WiFi opens the access point
-  `Moonstation-XXXX` at `192.168.4.1` and serves the page there
-- No secrets in the source: WiFi, the page login and the weather key are typed
-  in on that page, stored in NVS and never shown again (write-only). The
-  factory login `admin` / `admin` has to be replaced on the first visit
-- Volume by gesture in every mode: a swipe up is louder, down quieter, one
-  5 % step per 40 px of travel, at most five per swipe. A bar shows the level
-  for 1.5 s and the level survives a reboot
-- Daily alarm at a local time, set on the page: own screen in every mode, two
-  rising tones every two seconds, stopped by a tap or after five minutes, and
-  it wakes the box from the night deep sleep
-- Backlight 100 % while active, dimmed after 15 s, deepest step after 60 s
-  inside the night window only, full brightness on any touch. Audio feedback on
-  touch and mode changes
-- Missing SD card shows a red screen, an empty image directory a yellow one,
-  both retried every 2 s; a corrupt JPEG is skipped
+- Six modes on a long press: clock → slideshow → clock+slideshow → weather →
+  radio → movie; the box boots into the clock
+- Slideshow of 240x240 baseline JPEGs in name order, optional crossfade; a tap
+  advances immediately
+- Clock with HH:MM, weekday, date and battery, redrawn on the minute; an
+  optional night deep sleep that a touch or a pending alarm interrupts
+- Weather (`WEATHER_ENABLE`): current conditions, 24 hours and five days on
+  successive taps, cached in NVS and refreshed every 20 minutes
+- Radio (`RADIO_ENABLE`): MP3 streams from `.pls` playlists, one file per
+  station; the drawn button plays and pauses, swipes change station and volume,
+  and errors are shown and retried
+- Movies (`MOVIE_ENABLE`): H.264 with MP3 sound from `/movies`, decoded in
+  software; tap to play and pause, swipe for the next or previous, a movie that
+  ends starts over
+- HTTPS setup page with login: folders, timings, backlight, night window,
+  timezone, alarm, audio, battery and weather, stored in NVS and applied at
+  runtime; a red dot shows it runs
+- First setup without a cable: a box without WiFi opens `Moonstation-XXXX` at
+  192.168.4.1 and serves the page there
+- No secrets in the source: WiFi, the login and the weather key are entered on
+  the page, stored in NVS and never shown again
+- Dual boot with xiaozhi-esp32: hold the BOOT button for two seconds, works in
+  both directions
+- Volume swipe in every mode, a daily alarm with its own screen, backlight
+  dimming, touch feedback, and a red or yellow screen for a missing SD card or
+  an empty image directory
 
 ## Prerequisites
 
@@ -95,23 +68,10 @@ Serial capture without the monitor:
 stty -F /dev/ttyACM0 115200 raw -echo && timeout 20 cat /dev/ttyACM0
 ```
 
-The upload writes the bootloader, the partition table and the app, so it also
-creates the layout of the second firmware in one go: `factory` (this one),
-`ota_0`/`ota_1` and the 4 MB `assets` partition. The xiaozhi slots stay empty
-and the setup-page button stays disabled until they are filled.
-
-One-time step, only when the box still carries the old single-app table (the PHY
-calibration used to sit at 0xe000, where `otadata` lives now):
-
-```bash
-~/.platformio/penv/bin/python ~/.platformio/packages/tool-esptoolpy/esptool.py \
-  --chip esp32s3 -p /dev/ttyACM0 -b 921600 erase_region 0xe000 0x2000
-```
-
-xiaozhi is added later by writing its app and assets only, never its bootloader,
-partition table or `ota_data_initial.bin` (those would replace the shared
-layout). A two second hold on the BOOT button switches in both directions.
-Build and update details: [docs/dual-boot.md](docs/dual-boot.md).
+The upload writes the bootloader, the partition table and the app - and with it
+the layout the second firmware (xiaozhi-esp32) shares. The one-time step for
+boxes that still carry the old single-app table and all the details live in
+[docs/dual-boot.md](docs/dual-boot.md).
 
 ## First setup
 
@@ -130,102 +90,10 @@ serves the setup page there:
 6. The box restarts, joins your network and closes the access point. For later
    changes hold a finger on the display for 5 s and open the address it shows.
 
-The access point is open on purpose: it serves nothing but the login form, which
-has to be replaced before anything else appears, and it disappears once WiFi is
-configured. If the box later cannot reach its network (moved house, new router),
-the 5 s gesture falls back to the same access point.
-
-## Setup page
-
-Hold the finger still for 5 s. The box beeps, shows its address in the battery
-row and serves `https://<address>/` with a self-signed certificate (the browser
-warning on the first visit is expected). The page closes itself after 15 minutes
-without a request, or immediately on another 5 s hold.
-
-Everything the owner tunes lives there, applied without a reboot; only WiFi
-waits for the next server start (the box restarts itself when it was configured
-over its own access point). A changed login takes effect immediately and the
-browser asks for the new one right after saving. The password and the weather
-key are write-only: the page reports only whether one is stored, an empty field
-keeps it, and a checkbox erases the WiFi password or the key.
-
-The page can also hand the next boot to xiaozhi-esp32, which lives in its own
-flash slot; the button stays disabled while that slot is empty. Without a
-browser the same switch is a two second hold on the BOOT button, in both
-directions ([docs/dual-boot.md](docs/dual-boot.md)).
-
-## Configuration
-
-Copy `config.h.example` to `config.h` in the project root and adjust it. The file
-is tracked, so it must not contain a credential. The macros are the defaults:
-they are read into runtime settings at boot (`src/config/settings.c`), NVS can
-override them, and a firmware without `config.h` behaves like the fallbacks in
-that file.
-
-| Macro | Default | Meaning |
-| --- | --- | --- |
-| `SLIDE_INTERVAL_MS` | `10000` | time per slide in milliseconds |
-| `SLIDE_DIR` | `/slides` | directory on the SD card |
-| `SLIDE_FADE_MS` | `0` | crossfade between two images in ms (0 = hard cut) |
-| `SLIDE_PM_LOW_POWER` | `1` | release the CPU speed lock between two images |
-| `PM_LIGHT_SLEEP` | `0` | automatic light sleep (drops the USB console) |
-| `PM_MIN_CPU_MHZ` | `10` | idle CPU frequency floor (`40` to stay conservative) |
-| `LCD_SPI_HZ` | `40000000` | panel SPI clock |
-| `AUDIO_VOLUME` | `60` | speaker volume (0-100) |
-| `BACKLIGHT_FULL_PCT` | `100` | brightness while active (percent) |
-| `BACKLIGHT_DIM_PCT` | `20` | brightness after `BACKLIGHT_DIM_AFTER_SEC` |
-| `BACKLIGHT_DEEP_PCT` | `5` | brightness after `BACKLIGHT_DEEP_AFTER_SEC`, night window only |
-| `BACKLIGHT_DIM_AFTER_SEC` | `15` | idle seconds until first dim step |
-| `BACKLIGHT_DEEP_AFTER_SEC` | `60` | idle seconds until deepest dim step (night window only) |
-| `CLOCK_DEEP_SLEEP` | `0` | builds the night deep sleep in and enables it by default |
-| `CLOCK_DEEP_SLEEP_FROM` | `23` | first local hour of the deep sleep window |
-| `CLOCK_DEEP_SLEEP_TO` | `7` | first local hour after the deep sleep window |
-| `TIMEZONE_STD_OFFSET_HOURS` | `1` | standard (winter) UTC offset for the clock |
-| `TIMEZONE_EU_DST` | `1` | observe European summer time (`0` off) |
-| `NTP_SERVER` | `pool.ntp.org` | NTP server for the boot, daily and wake-up syncs |
-| `NTP_DAILY_SYNC_HOUR` | `4` | local hour of the daily resync while awake (`-1` off) |
-| `CLOCK_SHOW_BATTERY` | `1` | battery indicator below the date (`0` hides it) |
-| `BATTERY_WARN_PCT` | `10` | charge level that turns the indicator red and beeps (`0` off) |
-| `BATTERY_BEEP_VOLUME` | `30` | volume of that warning beep in percent |
-| `BATTERY_REFRESH_SEC` | `300` | seconds between battery samples |
-| `BATTERY_CHARGING_ACTIVE_HIGH` | `1` | charging input reads high while charging |
-| `WIFI_LISTEN_INTERVAL` | `10` | modem-sleep listen interval in beacon intervals |
-| `WEB_IDLE_TIMEOUT_MIN` | `15` | minutes without a request before the page closes |
-| `WEATHER_LAT` | `52.5200` | latitude the forecast is fetched for |
-| `WEATHER_LON` | `13.4050` | longitude the forecast is fetched for |
-| `WEATHER_REFRESH_MIN` | `20` | minutes between two OpenWeather refreshes (5-1440) |
-| `RADIO_DIR` | `/radio` | folder with the `.pls` playlists of the radio mode |
-| `MOVIE_DIR` | `/movies` | folder with the movies of the movie mode |
-| `ALARM_ENABLED` | `0` | alarm switch at boot (1 = on) |
-| `ALARM_HOUR` | `7` | local hour of the alarm (0-23) |
-| `ALARM_MINUTE` | `0` | minute of the alarm (0-59) |
-
-### Credentials
-
-WiFi, the login of the setup page and the OpenWeather key are not part of the
-template: they are typed in on the page and stored in NVS, and "Reset to
-default" keeps them. `config.h` can be committed - check `git diff` for
-credentials before you do. `WIFI_SSID` and `WIFI_PASSWORD` still compile in as an
-emergency hatch, both empty and commented out in the template, for the case
-where the access point cannot be used.
-
-The WiFi and NTP stack is always linked. Without an SSID the clock keeps the
-compile time and only the setup access point runs; with WiFi the firmware
-connects, waits up to 10 s for the first NTP answer and switches the radio off
-again, repeating that at `NTP_DAILY_SYNC_HOUR` because the RTC drifts by seconds
-per day without a 32.768 kHz crystal.
-
-The weather mode requests by coordinate in metric units, two calls per refresh;
-a failed refresh is retried after 5 minutes, and a reading older than two
-intervals gets a small amber ring at the top of the screen.
-
-With `CLOCK_DEEP_SLEEP` the clock mode deep sleeps inside the night window
-(default 23:00 to 07:00); the setup page's *Deep sleep at night* switch turns
-the same behaviour off and on at any time. The display stays dark for the whole
-window, a touch lights it up for the normal dimming period, and a pending alarm
-breaks the sleep at its time, rings, and sends the box back afterwards. Every
-wake-up is a full reboot: the RTC keeps the time, and the wake at the end of the
-window resyncs via NTP.
+The access point is open on purpose: it serves nothing but the login form,
+which has to be replaced before anything else appears, and it disappears once
+WiFi is configured. If the box later cannot reach its network (moved house, new
+router), the 5 s gesture falls back to the same access point.
 
 ## SD card
 
@@ -240,84 +108,20 @@ order. `scripts/build_slides.sh` converts arbitrary images with ImageMagick 7:
 
 Then copy the output to the card.
 
-## Movies
+## Documentation
 
-The movie mode plays MPEG-TS files (`.ts`) from `/movies`. The panel, the
-software decoder and the CPU decide what a movie may look like, so let the
-script do the conversion instead of copying a video to the card as it is:
-
-```bash
-./scripts/build_movies.py /path/to/movie.mp4
-./scripts/build_movies.py -o /path/to/output /path/to/*.mp4
-```
-
-It writes 240x240 H.264 constrained baseline at 15 fps: the picture is scaled
-to fill the panel and the overflow is cut at the left and right, so a 16:9
-video has no bars (`--fit pad` keeps the whole picture with black bars
-instead). The sound becomes 44.1 kHz mono MP3 at 48 kbit/s: the box has one
-small speaker, so a second channel would only cost bytes and decoder time. The
-movie is cut after two minutes (`--max-seconds`, `0` keeps all of it) and both
-streams are copied into MPEG-TS packets, without re-encoding, as `<name>.ts`.
-`--fps`, `--crf`, `--fit`, `--size`, `--no-audio` and `--output` are the other
-options.
-
-The software decoder is the limit, not the bitrate: 240x240 at 15 fps is
-already close to what it manages, and next to a sound track the picture falls
-behind and stutters. `--fps 12` plays smoothly with sound, `--size 192` decodes
-about a third fewer pixels, and `--no-audio` keeps the higher rate for a silent
-movie. The script warns when 15 fps meets a sound track.
-
-Copy the results to the card and keep the names: the mode plays the files in
-name order, and a swipe left or right moves forward or back.
-
-MPEG-TS is a standard container, so a movie on the card plays in VLC, mpv and
-ffmpeg as it is; nothing has to be converted to look at it on a desktop. The
-container costs about 15 % more space than the raw streams, because every
-transport packet is a fixed 188 bytes and a frame rarely fills one exactly.
-`./scripts/preview_movie.py` prints what is inside a movie, checks it against
-what the box can do and plays it with ffplay; `-o` writes a Matroska copy
-(video and sound copied, not re-encoded):
-
-```bash
-./scripts/preview_movie.py movies/holiday.ts
-./scripts/preview_movie.py -o /tmp/holiday.mkv movies/holiday.ts
-```
-
-A movie that reaches its end starts over, so the box keeps showing something
-until the next swipe or the next mode. A tap pauses and continues; the volume
-keeps the global vertical swipe in every mode. Movies are silent for the length
-of the alarm while it rings, because the alarm owns the speaker and the screen.
-
-## Hardware
-
-Board: Spotpear ESP32-S3 1.28" BOX, the N16R8 variant that Spotpear also sells
-as an AI desktop assistant running Xiaozhi.
-
-- SoC: ESP32-S3, dual-core Xtensa LX7 up to 240 MHz. The firmware runs at
-  80 MHz, drops to 10 MHz while both cores are idle and raises the clock to
-  240 MHz while the setup page is open
-- Flash: 16 MB (W25Q128JVSIQ per Spotpear, reported as 16 MB by the bootloader)
-- PSRAM: 8 MB octal at 80 MHz, used for the crossfade frame and the clock-free
-  slide copy of combined mode
-- Panel: GC9A01, 1.28", 240x240, 65K colours, inversion on, SPI at 40 MHz
-  (MOSI 2, SCLK 4, CS 5, DC 47, RST 38)
-- Backlight: GPIO 42, active low, PWM controlled
-- SD card: SDMMC 1-bit (CLK 17, CMD 18, D0 21, D3 13)
-- Touch: CST816D on I2C (SDA 11, SCL 7, INT 12, RST 6, address 0x15)
-- Audio: ES8311 codec on I2C (SDA 15, SCL 14) with I2S (MCLK 16, BCLK 9,
-  WS 45, DIN 10, DOUT 8), PA on GPIO 46
-- Battery: 3.7 V lithium connector with ETA6096 charger, voltage divider on
-  GPIO 1 (ADC1), charging status on GPIO 41
-- Motion: QMI8658 six-axis IMU (accelerometer and gyroscope) per Spotpear, not
-  used by this firmware
-- Console: logs go to UART0 (GPIO 43/44) and to the chip's native USB
-  Serial/JTAG, which is the `/dev/ttyACM0` on a Linux host
-
-## Development
+- [docs/movie.md](docs/movie.md): converting and playing movies, the container,
+  decoder notes
+- [docs/radio.md](docs/radio.md): the radio mode, playlists, stream tasks,
+  codecs
+- [docs/dual-boot.md](docs/dual-boot.md): the shared flash with xiaozhi-esp32,
+  the switch, update rules
+- [docs/configuration.md](docs/configuration.md): every `config.h` macro, the
+  credentials model, NTP and deep sleep
+- [docs/setup-page.md](docs/setup-page.md): the HTTPS setup page and its
+  behaviour
+- [docs/hardware.md](docs/hardware.md): the board, its pins and peripherals
+- [docs/development.md](docs/development.md): internals for maintainers
 
 CI runs cppcheck and a full firmware build on every push to `main` and on pull
-requests; pushing a `v*` tag publishes a GitHub Release with the binaries. See
-[docs/development.md](docs/development.md) for internals, hardware notes and the
-font regeneration. [docs/dual-boot.md](docs/dual-boot.md) describes the shared
-flash: moonstation and xiaozhi-esp32 side by side, the switch and the update
-rules.
+requests; pushing a `v*` tag publishes a GitHub Release with the binaries.
