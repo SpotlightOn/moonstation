@@ -4,6 +4,46 @@ Status: implemented (container format, playback engine, mode with its screen
 and gestures, converter script). Open points are listed under "Later";
 `docs/development.md` has the maintainer summary.
 
+## Usage
+
+The mode plays MPEG-TS files (`.ts`) from `/movies`. The panel, the software
+decoder and the CPU decide what a movie may look like, so let the script do the
+conversion instead of copying a video to the card as it is:
+
+```bash
+./scripts/build_movies.py /path/to/movie.mp4
+./scripts/build_movies.py -o /path/to/output /path/to/*.mp4
+```
+
+It writes 240x240 H.264 constrained baseline at 15 fps: the picture is scaled
+to fill the panel and the overflow is cut at the left and right, so a 16:9
+video has no bars (`--fit pad` keeps the whole picture with black bars
+instead). The sound becomes 44.1 kHz mono MP3 at 48 kbit/s: the box has one
+small speaker, so a second channel would only cost bytes and decoder time. The
+movie is cut after two minutes (`--max-seconds`, `0` keeps all of it) and both
+streams are copied into MPEG-TS packets, without re-encoding, as `<name>.ts`.
+`--fps`, `--crf`, `--fit`, `--size`, `--no-audio` and `--output` are the other
+options.
+
+The software decoder is the limit, not the bitrate: 240x240 at 15 fps is
+already close to what it manages, and next to a sound track the picture falls
+behind and stutters. `--fps 12` plays smoothly with sound, `--size 192` decodes
+about a third fewer pixels, and `--no-audio` keeps the higher rate for a silent
+movie. The script warns when 15 fps meets a sound track.
+
+Copy the results to the card and keep the names: the mode plays the files in
+name order, and a swipe left or right moves forward or back. A movie that
+reaches its end starts over. A tap pauses and continues; the volume keeps the
+global vertical swipe in every mode. Movies are silent for the length of the
+alarm while it rings, because the alarm owns the speaker and the screen.
+
+Check a movie on the desktop before it goes to the card:
+
+```bash
+./scripts/preview_movie.py movies/holiday.ts
+./scripts/preview_movie.py -o /tmp/holiday.mkv movies/holiday.ts
+```
+
 ## Goal
 
 A sixth mode after the radio that plays short videos on the round panel, with
